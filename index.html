@@ -1,84 +1,152 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>XSphere | حيث يتحدث الإبداع</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #010105; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
-    .snap-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; scroll-behavior: smooth; scrollbar-width: none; }
-    .snap-scroll::-webkit-scrollbar { display: none; }
-    .story-card { scroll-snap-align: start; height: 100vh; width: 100%; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
-    .media-element { width: 100%; height: 100%; object-fit: cover; }
-    .gradient-overlay { position: absolute; bottom: 0; left: 0; right: 0; height: 45%; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); pointer-events: none; }
-    .action-bar { position: absolute; bottom: 22%; right: 16px; display: flex; flex-direction: column; gap: 24px; z-index: 30; }
-    .action-icon { background: rgba(0,0,0,0.6); backdrop-filter: blur(12px); width: 54px; height: 54px; border-radius: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: 1px solid rgba(0,255,255,0.4); transition: 0.1s; }
-    .action-icon:active { transform: scale(0.92); }
-    .user-info-card { position: absolute; bottom: 20%; left: 18px; z-index: 30; background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); padding: 10px 18px; border-radius: 40px; border-left: 4px solid #0ff; max-width: 70%; }
-    .comment-panel { position: absolute; bottom: 8%; left: 16px; right: 80px; background: rgba(20,20,40,0.85); backdrop-filter: blur(20px); border-radius: 40px; padding: 8px 16px; display: flex; gap: 10px; z-index: 35; border: 1px solid #0ff4; }
-    .floating-chat, .upload-floating { position: fixed; bottom: 24px; width: 60px; height: 60px; border-radius: 40px; display: flex; align-items: center; justify-content: center; z-index: 200; cursor: pointer; transition: 0.2s; box-shadow: 0 0 15px #0ff; }
-    .floating-chat { left: 20px; background: #1e1a3a; border: 1px solid #ff66cc; }
-    .upload-floating { right: 20px; background: linear-gradient(135deg, #00c6ff, #0072ff); }
-    .profile-mini { position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.6); backdrop-filter: blur(12px); padding: 8px 18px; border-radius: 40px; display: flex; align-items: center; gap: 12px; z-index: 100; cursor: pointer; border: 1px solid #0ff6; }
-    .chat-window { position: fixed; bottom: 100px; left: 20px; width: 360px; height: 550px; background: rgba(10,15,30,0.96); backdrop-filter: blur(30px); border-radius: 32px; border: 1px solid #ff44cc; display: none; flex-direction: column; z-index: 300; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-    .upload-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.92); backdrop-filter: blur(24px); z-index: 1000; display: none; justify-content: center; align-items: center; }
-    .upload-card { background: #0b0e1a; border-radius: 48px; width: 90%; max-width: 550px; padding: 28px; border: 1px solid #0ff; box-shadow: 0 0 50px #0ff2; }
-    .file-drop-area { border: 2px dashed #0ff; border-radius: 32px; padding: 35px; text-align: center; cursor: pointer; transition: 0.2s; }
-    .file-drop-area:hover { background: #0ff1; }
-    .progress-item { background: #1e1f2e; border-radius: 20px; padding: 12px; margin-top: 12px; }
-    .progress-bar { height: 8px; background: #2a2b3c; border-radius: 10px; overflow: hidden; margin-top: 8px; }
-    .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #00c6ff, #0072ff); transition: width 0.2s; }
-    .media-gallery { position: absolute; bottom: 28%; left: 20px; right: 80px; display: flex; gap: 10px; overflow-x: auto; z-index: 25; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); padding: 8px; border-radius: 30px; }
-    .media-gallery img, .media-gallery video { width: 110px; height: 110px; object-fit: cover; border-radius: 20px; border: 2px solid #0ff; cursor: pointer; }
-    .fullscreen-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: black; z-index: 2000; display: none; justify-content: center; align-items: center; }
-    .fullscreen-modal img, .fullscreen-modal video { max-width: 95%; max-height: 95%; }
-    .online-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-left: 6px; box-shadow: 0 0 5px #22c55e; }
-    .profile-modal, .admin-panel { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); backdrop-filter: blur(20px); z-index: 500; display: none; justify-content: center; align-items: center; overflow-y: auto; }
-    .profile-card, .admin-card { background: #0f1222; border-radius: 48px; max-width: 500px; width: 90%; padding: 24px; border: 1px solid #0ff; max-height: 90vh; overflow-y: auto; }
-    @keyframes fadeIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>VØID_X | الشبكة</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;900&family=Cairo:wght@400;700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #050002; font-family: 'Cairo', sans-serif; overflow-x: hidden; }
+        :root { --neon: #ff007f; }
+        .bg-void { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, #1a000d 0%, #000 100%); z-index: -2; }
+        /* header */
+        .glass-header {
+            position: fixed; top: 20px; left: 20px; right: 20px; z-index: 100;
+            display: flex; justify-content: space-between; align-items: center; pointer-events: none;
+        }
+        .brand {
+            background: rgba(255,255,255,0.03); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 22px; border-radius: 30px; border-left: 4px solid var(--neon); pointer-events: auto;
+        }
+        .brand span { font-family: 'Orbitron'; font-weight: 900; letter-spacing: 2px; text-shadow: 0 0 10px var(--neon); }
+        .clock { background: rgba(255,255,255,0.03); backdrop-filter: blur(10px); border-radius: 30px; padding: 8px 18px; font-family: 'Orbitron'; font-size: 12px; }
+        /* grid posts */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+            padding: 100px 24px 120px 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .post-card {
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 32px;
+            overflow: hidden;
+            transition: 0.3s ease;
+            animation: fadeUp 0.4s ease;
+        }
+        .post-card:hover { transform: translateY(-8px); border-color: var(--neon); box-shadow: 0 20px 30px rgba(0,0,0,0.5); }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .media-fit { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+        .post-info { padding: 16px; }
+        .user-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .avatar-sm { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--neon); }
+        .post-text { font-size: 14px; color: #ddd; margin: 10px 0; }
+        .post-stats { display: flex; gap: 20px; margin-top: 12px; }
+        .stat-btn { background: none; border: none; color: #aaa; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; }
+        .stat-btn.liked { color: var(--neon); text-shadow: 0 0 5px var(--neon); }
+        /* side buttons */
+        .floating-upload {
+            position: fixed; bottom: 30px; right: 30px; z-index: 200;
+            background: var(--neon); width: 65px; height: 65px; border-radius: 25px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            box-shadow: 0 0 25px var(--neon); transition: 0.2s;
+        }
+        .floating-chat {
+            position: fixed; bottom: 30px; left: 30px; z-index: 200;
+            background: rgba(255,255,255,0.05); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.2);
+            width: 65px; height: 65px; border-radius: 25px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+        /* modals glass */
+        .glass-modal {
+            position: fixed; inset: 0; background: rgba(5,0,2,0.96); backdrop-filter: blur(30px); z-index: 1000;
+            display: none; justify-content: center; align-items: center; overflow-y: auto;
+        }
+        .glass-card {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 48px;
+            width: 90%; max-width: 550px; padding: 28px; margin: 40px auto;
+        }
+        .progress-item { background: rgba(255,255,255,0.05); border-radius: 20px; padding: 12px; margin-top: 12px; }
+        .progress-bar { height: 6px; background: #2a2b3c; border-radius: 10px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: var(--neon); transition: width 0.2s; }
+        .chat-window {
+            position: fixed; bottom: 110px; left: 30px; width: 360px; height: 500px;
+            background: rgba(5,0,2,0.95); backdrop-filter: blur(30px); border: 1px solid var(--neon);
+            border-radius: 32px; display: none; flex-direction: column; z-index: 300; overflow: hidden;
+        }
+        .online-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; margin-left: 6px; box-shadow: 0 0 5px #22c55e; }
+        .admin-badge { background: #ff007f20; border: 1px solid #ff007f; border-radius: 30px; padding: 4px 12px; font-size: 10px; cursor: pointer; }
+        .drop-area { border: 2px dashed var(--neon); border-radius: 32px; padding: 30px; text-align: center; cursor: pointer; transition: 0.2s; }
+        .drop-area:hover { background: #ff007f10; }
+    </style>
 </head>
 <body>
-  <div class="profile-mini" id="profileBtn"><i class="fas fa-user-astronaut text-cyan-400"></i><span id="profileName">...</span><span id="onlineBadge" class="online-dot"></span></div>
-  <div class="snap-scroll" id="feedContainer"></div>
-  <div class="floating-chat" id="chatToggle"><i class="fas fa-comment-dots text-2xl text-pink-400"></i></div>
-  <div class="upload-floating" id="uploadFloatingBtn"><i class="fas fa-cloud-upload-alt text-2xl"></i></div>
+<div class="bg-void"></div>
 
-  <!-- نافذة الرفع المتقدم -->
-  <div id="uploadModal" class="upload-modal">
-    <div class="upload-card">
-      <div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold"><i class="fas fa-upload"></i> رفع محتوى</h2><i id="closeUploadModal" class="fas fa-times cursor-pointer text-gray-400 text-xl"></i></div>
-      <div id="dropArea" class="file-drop-area"><i class="fas fa-cloud-upload-alt text-4xl text-cyan-400 mb-2 block"></i><p>اسحب الملفات هنا أو اضغط للاختيار</p><input type="file" id="fileInput" multiple accept="image/*,video/mp4, video/quicktime" style="display:none"></div>
-      <div class="mt-3"><label class="text-sm">وصف المنشور</label><textarea id="postCaption" rows="2" class="w-full bg-black/60 rounded-xl p-2 mt-1"></textarea></div>
-      <div id="progressList" class="mt-3 max-h-60 overflow-y-auto"></div>
-      <button id="startUploadBtn" class="bg-cyan-600 w-full py-3 rounded-full mt-4 font-bold">بدء الرفع</button>
+<header class="glass-header">
+    <div class="brand"><span>VØID_X</span></div>
+    <div class="clock" id="liveClock"></div>
+</header>
+
+<!-- Grid Posts -->
+<div class="grid-container" id="postsGrid"></div>
+
+<!-- Floating Buttons -->
+<div class="floating-upload" id="uploadBtn"><i class="fas fa-plus text-2xl text-white"></i></div>
+<div class="floating-chat" id="chatToggle"><i class="fas fa-comment-dots text-2xl text-pink-500"></i></div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="glass-modal">
+    <div class="glass-card">
+        <div class="flex justify-between items-center mb-4"><h2 class="font-[Orbitron] text-xl text-pink-500">رفع محتوى</h2><i id="closeUpload" class="fas fa-times cursor-pointer text-gray-400 text-xl"></i></div>
+        <div id="dropZone" class="drop-area"><i class="fas fa-cloud-upload-alt text-3xl text-pink-500 mb-2 block"></i><p>اسحب الملفات هنا أو اضغط</p><input type="file" id="fileInput" multiple accept="image/*,video/mp4" style="display:none"></div>
+        <textarea id="postCaption" rows="2" placeholder="وصف المنشور..." class="w-full bg-black/50 rounded-2xl p-3 mt-3 border border-white/10"></textarea>
+        <div id="progressList" class="mt-3 max-h-60 overflow-y-auto"></div>
+        <button id="startUpload" class="w-full bg-pink-600 py-3 rounded-full mt-4 font-bold">بدء الرفع</button>
     </div>
-  </div>
+</div>
 
-  <!-- نافذة الدردشة -->
-  <div class="chat-window" id="chatWindow">
-    <div class="flex justify-between items-center p-4 border-b border-pink-500"><span class="font-bold">💬 نبض المجتمع</span><i id="closeChat" class="fas fa-times cursor-pointer text-gray-300"></i></div>
-    <div id="chatMessagesList" class="flex-1 overflow-y-auto p-4 space-y-2 text-sm"></div>
-    <div class="p-4 flex gap-2 items-center"><input id="chatMsgInput" placeholder="رسالة..." class="flex-1 bg-black/50 rounded-full px-4 py-2"><button id="sendChatMsgBtn" class="text-pink-400 px-3">إرسال</button><button id="recordAudioBtn" class="bg-red-600 w-10 h-10 rounded-full"><i class="fas fa-microphone"></i></button></div>
+<!-- Chat Window -->
+<div id="chatWindow" class="chat-window">
+    <div class="flex justify-between items-center p-4 border-b border-pink-500"><span class="font-bold">💬 VØID_CHAT</span><i id="closeChat" class="fas fa-times cursor-pointer"></i></div>
+    <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-2 text-sm"></div>
+    <div class="p-4 flex gap-2"><input id="chatInput" placeholder="رسالة..." class="flex-1 bg-black/50 rounded-full px-4 py-2"><button id="sendChat" class="text-pink-500 px-3">إرسال</button><button id="recordAudio" class="bg-red-600 w-10 h-10 rounded-full"><i class="fas fa-microphone"></i></button></div>
     <div id="recordingStatus" class="text-xs text-center text-red-400 hidden pb-2">🎙️ جاري التسجيل...</div>
-  </div>
+</div>
 
-  <!-- نافذة البروفايل -->
-  <div id="profileModal" class="profile-modal"><div class="profile-card text-white"><div class="flex justify-between"><h2 class="text-xl font-bold">الملف الشخصي</h2><i id="closeModal" class="fas fa-times cursor-pointer text-gray-400"></i></div><div class="flex flex-col items-center my-4"><img id="profileAvatar" src="https://via.placeholder.com/100" class="w-24 h-24 rounded-full object-cover border-2 border-cyan-400"><button id="changeAvatarBtn" class="text-xs bg-gray-700 px-3 py-1 rounded-full mt-2">تغيير الصورة</button></div><div><input type="text" id="editUsername" placeholder="اسم المستخدم" class="w-full bg-gray-800 rounded-xl p-2 mb-3"><textarea id="editBio" rows="2" placeholder="السيرة الذاتية" class="w-full bg-gray-800 rounded-xl p-2 mb-3"></textarea><button id="saveProfileBtn" class="bg-cyan-600 w-full py-2 rounded-full">حفظ التغييرات</button></div><hr class="my-4"><div class="flex justify-between"><span>المتابعون: <span id="modalFollowers">0</span></span><span>يتابع: <span id="modalFollowing">0</span></span><span>منشورات: <span id="modalPosts">0</span></span></div><div id="adminButtonContainer" class="hidden mt-3"><button id="adminPanelBtn" class="bg-red-600 w-full py-2 rounded-full"><i class="fas fa-crown"></i> لوحة التحكم (أدمن)</button></div><hr class="my-4"><div id="profilePostsList" class="max-h-40 overflow-y-auto space-y-2 text-sm"></div></div></div>
+<!-- Profile Modal (سيتم ملؤه بواسطة JS) -->
+<div id="profileModal" class="glass-modal">
+    <div class="glass-card text-white">
+        <div class="flex justify-between"><h2 class="font-[Orbitron]">الملف الشخصي</h2><i id="closeProfile" class="fas fa-times cursor-pointer"></i></div>
+        <div class="flex flex-col items-center my-4"><img id="profileAvatar" src="https://via.placeholder.com/100" class="w-24 h-24 rounded-full object-cover border-2 border-pink-500"><button id="changeAvatar" class="text-xs bg-gray-700 px-3 py-1 rounded-full mt-2">تغيير الصورة</button></div>
+        <input type="text" id="editUsername" placeholder="اسم المستخدم" class="w-full bg-black/50 rounded-2xl p-2 mb-3">
+        <textarea id="editBio" rows="2" placeholder="السيرة الذاتية" class="w-full bg-black/50 rounded-2xl p-2 mb-3"></textarea>
+        <button id="saveProfile" class="bg-pink-600 w-full py-2 rounded-full">حفظ التغييرات</button>
+        <hr class="my-4 border-white/10"><div class="flex justify-between"><span>المتابعون: <span id="modalFollowers">0</span></span><span>يتابع: <span id="modalFollowing">0</span></span><span>منشورات: <span id="modalPosts">0</span></span></div>
+        <div id="adminBtnContainer" class="hidden mt-3"><button id="openAdminPanel" class="bg-red-600 w-full py-2 rounded-full"><i class="fas fa-crown"></i> لوحة التحكم (أدمن)</button></div>
+        <hr class="my-4"><div id="userPostsList" class="max-h-40 overflow-y-auto space-y-2 text-sm"></div>
+    </div>
+</div>
 
-  <!-- لوحة تحكم الأدمن -->
-  <div id="adminPanel" class="admin-panel"><div class="admin-card"><div class="flex justify-between"><h2 class="text-xl font-bold text-red-400"><i class="fas fa-shield-alt"></i> لوحة التحكم</h2><i id="closeAdminPanel" class="fas fa-times cursor-pointer text-gray-400"></i></div><div class="mt-4"><h3 class="font-bold">المستخدمون</h3><div id="adminUsersList" class="max-h-60 overflow-y-auto space-y-2 my-2"></div><h3 class="font-bold mt-4">المنشورات</h3><div id="adminPostsList" class="max-h-60 overflow-y-auto space-y-2 my-2"></div></div></div></div>
+<!-- Admin Panel -->
+<div id="adminModal" class="glass-modal">
+    <div class="glass-card">
+        <div class="flex justify-between"><h2 class="font-[Orbitron] text-red-500">🛡️ لوحة التحكم</h2><i id="closeAdmin" class="fas fa-times cursor-pointer"></i></div>
+        <div class="mt-4"><h3 class="font-bold">المستخدمون</h3><div id="adminUsersList" class="max-h-60 overflow-y-auto space-y-2 my-2"></div><h3 class="font-bold mt-4">المنشورات</h3><div id="adminPostsList" class="max-h-60 overflow-y-auto space-y-2 my-2"></div></div>
+    </div>
+</div>
 
-  <div id="fullscreenModal" class="fullscreen-modal"><span id="closeFullscreen" class="absolute top-5 right-5 text-3xl cursor-pointer text-white">&times;</span><div id="fullscreenContent"></div></div>
-
-  <script src="firebase-config.js"></script>
-  <script src="script.js"></script>
+<script src="firebase-config.js"></script>
+<script src="script.js"></script>
 </body>
 </html>
