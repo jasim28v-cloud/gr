@@ -1,4 +1,4 @@
-// ==================== XSPHERE - VØID EDITION ====================
+// ==================== XSPHERE - CONFIG ====================
 const firebaseConfig = {
     apiKey: "AIzaSyC8u6Us6ZvnD4pjYxzRmK0UcwOJAvh1ZCU",
     authDomain: "mnsx-23109.firebaseapp.com",
@@ -8,7 +8,9 @@ const firebaseConfig = {
     appId: "1:1035746353339:web:eec9d447b4379dfa1dc99e"
 };
 
-if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 
 const auth = firebase.auth();
 const db = firebase.database();
@@ -17,4 +19,4 @@ const UPLOAD_PRESET = 'do33_x';
 const ADMIN_EMAIL = 'jasim88v@gmail.com';
 const ADMIN_PASSWORD = 'kk2314kk';
 
-console.log('✅ XSPHERE VØID EDITION READY');
+console.log('✅ Firebase ready');
