@@ -54,15 +54,16 @@
         }
         .btn-neon:active { transform: scale(0.97); }
         .link { color: #0ff; cursor: pointer; font-weight: 500; }
-        .error-msg, .success-msg {
+        .error-msg {
             border-radius: 28px;
             padding: 10px;
             margin-bottom: 1rem;
             font-size: 0.85rem;
             display: none;
+            background: #ff003320;
+            border: 1px solid #ff0033;
+            color: #ffb3b3;
         }
-        .error-msg { background: #ff003320; border: 1px solid #ff0033; color: #ffb3b3; }
-        .success-msg { background: #00ff8020; border: 1px solid #00ff80; color: #b3ffd9; }
     </style>
 </head>
 <body>
@@ -73,16 +74,14 @@
         <p class="text-gray-300 text-sm">عالم جديد من التواصل</p>
     </div>
     <div id="errorMsg" class="error-msg"></div>
-    <div id="successMsg" class="success-msg"></div>
 
     <!-- Login View -->
     <div id="loginView">
         <input type="email" id="loginEmail" placeholder="البريد الإلكتروني" class="input-glow mb-3">
         <input type="password" id="loginPassword" placeholder="كلمة المرور" class="input-glow mb-5">
         <button id="loginBtn" class="btn-neon">دخول</button>
-        <div class="flex justify-between mt-3 text-sm">
-            <span id="showRegister" class="link">إنشاء حساب</span>
-            <span id="resetPwdBtn" class="link">نسيت كلمة المرور؟</span>
+        <div class="text-center mt-3 text-sm">
+            <span id="showRegister" class="link">إنشاء حساب جديد</span>
         </div>
         <hr class="my-5 border-white/20">
         <button id="googleLoginBtn" class="w-full bg-white/10 hover:bg-white/20 border border-white/20 rounded-full py-2 flex items-center justify-center gap-2"><i class="fab fa-google"></i> Google</button>
@@ -104,17 +103,11 @@
     const loginDiv = document.getElementById('loginView');
     const regDiv = document.getElementById('registerView');
     const errDiv = document.getElementById('errorMsg');
-    const sucDiv = document.getElementById('successMsg');
 
     function showError(msg) {
         errDiv.innerText = msg;
         errDiv.style.display = 'block';
         setTimeout(() => errDiv.style.display = 'none', 6000);
-    }
-    function showSuccess(msg) {
-        sucDiv.innerText = msg;
-        sucDiv.style.display = 'block';
-        setTimeout(() => sucDiv.style.display = 'none', 6000);
     }
 
     document.getElementById('showRegister').onclick = () => {
@@ -132,19 +125,14 @@
         const pass = document.getElementById('loginPassword').value;
         if (!email || !pass) return showError('املأ جميع الحقول');
         try {
-            const userCred = await auth.signInWithEmailAndPassword(email, pass);
-            if (!userCred.user.emailVerified) {
-                await auth.signOut();
-                return showError('❌ حسابك غير مؤكد. يرجى التحقق من بريدك الإلكتروني (رابط التأكيد أرسل عند التسجيل).');
-            }
-            // بعد تسجيل الدخول بنجاح، انتقل إلى الصفحة الرئيسية
-            window.location.href = 'index.html';
+            await auth.signInWithEmailAndPassword(email, pass);
+            window.location.href = 'index.html'; // انتقل إلى الصفحة الرئيسية
         } catch (err) {
             showError(err.message);
         }
     };
 
-    // Register
+    // Register (بدون إرسال بريد تأكيد، يتم تسجيل الدخول مباشرة)
     document.getElementById('registerBtn').onclick = async () => {
         const email = document.getElementById('regEmail').value.trim();
         const username = document.getElementById('regUsername').value.trim();
@@ -156,13 +144,8 @@
         try {
             const userCred = await auth.createUserWithEmailAndPassword(email, pass);
             await userCred.user.updateProfile({ displayName: username });
-            await userCred.user.sendEmailVerification();
-            showSuccess('✅ تم إرسال رابط التأكيد إلى بريدك الإلكتروني. يرجى التحقق ثم تسجيل الدخول.');
-            await auth.signOut();
-            setTimeout(() => {
-                regDiv.style.display = 'none';
-                loginDiv.style.display = 'block';
-            }, 4000);
+            // لا يتم إرسال أي بريد تأكيد
+            window.location.href = 'index.html';
         } catch (err) {
             showError(err.message);
         }
@@ -172,35 +155,16 @@
     document.getElementById('googleLoginBtn').onclick = async () => {
         const provider = new firebase.auth.GoogleAuthProvider();
         try {
-            const result = await auth.signInWithPopup(provider);
-            if (!result.user.emailVerified) {
-                await auth.signOut();
-                return showError('يرجى التأكد من بريد Google الخاص بك (يجب أن يكون مفعلاً).');
-            }
+            await auth.signInWithPopup(provider);
             window.location.href = 'index.html';
         } catch (err) {
             showError(err.message);
         }
     };
 
-    // Reset Password (إرسال رابط إلى البريد)
-    document.getElementById('resetPwdBtn').onclick = async () => {
-        const email = prompt('أدخل بريدك الإلكتروني لإعادة تعيين كلمة المرور:');
-        if (email && email.includes('@')) {
-            try {
-                await auth.sendPasswordResetEmail(email);
-                alert('✅ تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.');
-            } catch (err) {
-                showError(err.message);
-            }
-        } else {
-            showError('بريد إلكتروني غير صالح');
-        }
-    };
-
-    // If already logged in and verified, go to index
+    // إذا كان المستخدم مسجلاً بالفعل، انتقل مباشرة
     auth.onAuthStateChanged(user => {
-        if (user && user.emailVerified) {
+        if (user) {
             window.location.href = 'index.html';
         }
     });
