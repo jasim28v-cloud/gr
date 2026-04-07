@@ -1,158 +1,1755 @@
-// ==================== XSPHERE FULL LOGIC ====================
+// ==================== المتغيرات العامة ====================
 let currentUser = null;
-let allPosts = [];
-let mediaRecorder, audioChunks = [], isRecording = false;
-let filesToUpload = [], uploadProgress = {};
+let currentPostId = null;
+let currentChatUser = null;
+let currentProfileUser = null;
+let selectedMediaFile = null;
+let editingPostId = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let typingTimeout = null;
+let currentReportPostId = null;
+let selectedReportReason = null;
+let readModeActive = false;
+let hideLikesActive = false;
+let currentImageUrls = [];
+let currentImageIndex = 0;
+let lastPostTimestamp = null;
+let isLoadingMore = false;
+let hasMorePosts = true;
+let scrollListenerActive = false;
 
-const badWords = ["كس", "زنا", "سكس", "عاهرة", "خنزير", "شرموطة"];
-function containsBadWords(t) { if (!t) return false; return badWords.some(w => t.toLowerCase().includes(w)); }
-function showToast(msg, isErr = false) {
-    let d = document.createElement('div');
-    d.innerText = msg;
-    d.className = `fixed bottom-24 left-1/2 transform -translate-x-1/2 z-[500] px-5 py-2 rounded-full text-sm backdrop-blur-xl shadow-xl ${isErr ? 'bg-red-600/80' : 'bg-cyan-600/80'} text-white`;
-    document.body.appendChild(d);
-    setTimeout(() => d.remove(), 2600);
+let agoraClient = null;
+let localTracks = { videoTrack: null, audioTrack: null };
+let isCallActive = false;
+
+let badWordsList = ['كس', 'عير', 'قحب', 'زنا', 'سكس', 'porn', 'sex', 'fuck', 'shit', 'bitch', 'كلب', 'حمار', 'خنزير', 'عاهرة', 'داعر'];
+
+// ==================== دوال مساعدة ====================
+function showToast(message, duration = 2000) {
+    const toast = document.getElementById('customToast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.style.opacity = '1';
+    setTimeout(() => {
+        toast.style.opacity = '0';
+    }, duration);
 }
-function timeAgo(ts) { if (!ts) return 'الآن'; let s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return 'منذ ثوان'; let m = Math.floor(s / 60); if (m < 60) return `منذ ${m} دقيقة`; let h = Math.floor(m / 60); if (h < 24) return `منذ ${h} ساعة`; return new Date(ts).toLocaleDateString('ar-EG'); }
-function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
 
-setInterval(() => { document.getElementById('liveClock').innerText = new Date().toLocaleTimeString('en-GB'); }, 1000);
+function openImageViewer(images, index) {
+    currentImageUrls = images;
+    currentImageIndex = index;
+    const viewer = document.getElementById('imageViewerModal');
+    const viewerImg = document.getElementById('viewerImage');
+    if (viewerImg && images[index]) viewerImg.src = images[index];
+    viewer.classList.add('open');
+}
 
-// ========== UPLOAD ==========
-function updateProgressUI() {
-    let cont = document.getElementById('progressList'); if (!cont) return;
-    cont.innerHTML = '';
-    for (let f of filesToUpload) {
-        let p = uploadProgress[f.name] || 0;
-        cont.innerHTML += `<div class="progress-item"><div class="flex justify-between text-xs"><span>${f.name.substring(0, 30)}</span><span>${p}%</span></div><div class="progress-bar"><div class="progress-fill" style="width:${p}%"></div></div></div>`;
+function closeImageViewer() {
+    document.getElementById('imageViewerModal').classList.remove('open');
+}
+
+function prevImage() {
+    if (currentImageIndex > 0) {
+        currentImageIndex--;
+        document.getElementById('viewerImage').src = currentImageUrls[currentImageIndex];
     }
 }
-function uploadFileToCloudinary(file) {
-    return new Promise((resolve, reject) => {
-        let xhr = new XMLHttpRequest();
-        let fd = new FormData();
-        fd.append('file', file);
-        fd.append('upload_preset', UPLOAD_PRESET);
-        xhr.upload.addEventListener('progress', e => { if (e.lengthComputable) { uploadProgress[file.name] = Math.round((e.loaded / e.total) * 100); updateProgressUI(); } });
-        xhr.onload = () => { if (xhr.status === 200) resolve(JSON.parse(xhr.responseText).secure_url); else reject(xhr.statusText); };
-        xhr.onerror = () => reject('Network error');
-        xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`);
-        xhr.send(fd);
-    });
-}
-document.getElementById('uploadBtn').onclick = () => { document.getElementById('uploadModal').style.display = 'flex'; filesToUpload = []; uploadProgress = {}; updateProgressUI(); document.getElementById('postCaption').value = ''; };
-document.getElementById('closeUpload').onclick = () => document.getElementById('uploadModal').style.display = 'none';
-let dropZone = document.getElementById('dropZone'), fileInput = document.getElementById('fileInput');
-dropZone.onclick = () => fileInput.click();
-dropZone.ondragover = e => { e.preventDefault(); dropZone.style.background = '#0ff2'; };
-dropZone.ondragleave = () => dropZone.style.background = '';
-dropZone.ondrop = e => { e.preventDefault(); dropZone.style.background = ''; filesToUpload = Array.from(e.dataTransfer.files); updateProgressUI(); };
-fileInput.onchange = e => { filesToUpload = Array.from(e.target.files); updateProgressUI(); };
-document.getElementById('startUpload').onclick = async () => {
-    if (filesToUpload.length === 0) return showToast('اختر ملفات أولاً', true);
-    let caption = document.getElementById('postCaption').value.trim();
-    if (containsBadWords(caption)) return showToast('وصف مخالف', true);
-    showToast(`رفع ${filesToUpload.length} ملف...`);
-    let urls = [];
-    for (let f of filesToUpload) {
-        let file = f;
-        if (file.type.startsWith('image/')) { const opts = { maxSizeMB: 1, maxWidthOrHeight: 1080 }; file = await imageCompression(file, opts); }
-        let url = await uploadFileToCloudinary(file);
-        urls.push(url);
-    }
-    await db.ref('posts').push({ userId: currentUser.uid, userName: currentUser.displayName, userAvatar: currentUser.photoURL || null, text: caption, mediaUrls: urls, likes: {}, createdAt: Date.now() });
-    showToast('تم النشر بنجاح!');
-    document.getElementById('uploadModal').style.display = 'none';
-    filesToUpload = [];
-};
 
-// ========== RENDER POSTS GRID ==========
-function renderPosts(posts) {
-    let grid = document.getElementById('postsGrid');
-    if (!posts.length) { grid.innerHTML = '<div class="text-center text-gray-400 col-span-full mt-40 text-xl">✨ لا منشورات بعد ✨</div>'; return; }
+function nextImage() {
+    if (currentImageIndex < currentImageUrls.length - 1) {
+        currentImageIndex++;
+        document.getElementById('viewerImage').src = currentImageUrls[currentImageIndex];
+    }
+}
+
+function formatTime(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days} يوم`;
+    if (hours > 0) return `${hours} ساعة`;
+    if (minutes > 0) return `${minutes} دقيقة`;
+    return `${seconds} ثانية`;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function extractHashtags(text) {
+    const hashtags = text.match(/#[\w\u0600-\u06FF]+/g) || [];
+    return hashtags.map(tag => tag.substring(1));
+}
+
+function containsBadWords(text) {
+    if (!text) return false;
+    const lowerText = text.toLowerCase();
+    for (const word of badWordsList) {
+        if (lowerText.includes(word.toLowerCase())) return true;
+    }
+    return false;
+}
+
+function filterBadWords(text) {
+    if (!text) return '';
+    let filtered = text;
+    for (const word of badWordsList) {
+        const regex = new RegExp(word, 'gi');
+        filtered = filtered.replace(regex, '*'.repeat(word.length));
+    }
+    return filtered;
+}
+
+// ==================== إدارة الكلمات الممنوعة ====================
+function loadBadWordsManager() {
+    const container = document.getElementById('badWordsManagerList');
+    if (!container) return;
+    
     let html = '';
-    posts.forEach(post => {
-        let mediaUrls = post.mediaUrls ? (Array.isArray(post.mediaUrls) ? post.mediaUrls : Object.values(post.mediaUrls)) : [];
-        let firstMedia = mediaUrls[0] || '';
-        let isVideo = firstMedia && (firstMedia.includes('.mp4') || firstMedia.includes('.mov'));
-        let mediaTag = isVideo ? `<video src="${firstMedia}" class="media-fit" loop muted playsinline></video>` : `<img src="${firstMedia}" class="media-fit" loading="lazy">`;
-        let liked = post.likes && post.likes[currentUser.uid];
-        html += `<div class="post-card" data-id="${post.id}">${mediaTag}<div class="post-info"><div class="user-row"><img src="${post.userAvatar || 'https://via.placeholder.com/40'}" class="avatar-sm"><div><div class="font-bold">${escapeHtml(post.userName)}</div><div class="text-xs text-gray-400">${timeAgo(post.createdAt)}</div></div></div><div class="post-text">${escapeHtml(post.text || '')}</div><div class="post-stats"><button class="stat-btn like-btn" data-id="${post.id}"><i class="fas ${liked ? 'fa-heart text-pink-500' : 'fa-heart'}"></i> <span>${Object.keys(post.likes || {}).length}</span></button><button class="stat-btn comment-toggle" data-id="${post.id}"><i class="fas fa-comment"></i> تعليق</button><button class="stat-btn share-btn" data-url="${location.origin}"><i class="fas fa-share-alt"></i></button></div><div class="comment-panel hidden mt-3 border-t border-white/10 pt-3" id="commentBox-${post.id}"><div class="flex gap-2 mb-2"><input type="text" id="commentInput-${post.id}" placeholder="اكتب تعليقاً..." class="flex-1 bg-black/50 rounded-full px-3 py-1 text-sm"><button class="sendComment bg-pink-600 px-3 rounded-full text-sm" data-id="${post.id}">نشر</button></div><div id="commentsList-${post.id}" class="text-xs space-y-1"></div></div></div></div>`;
+    for (let i = 0; i < badWordsList.length; i++) {
+        html += `<span class="bad-word-tag" onclick="removeBadWord(${i})">🚫 ${escapeHtml(badWordsList[i])} ✖</span>`;
+    }
+    container.innerHTML = html || '<div class="text-center p-4 text-gray-500">لا توجد كلمات ممنوعة</div>';
+}
+
+function addBadWord() {
+    const input = document.getElementById('newBadWordInput');
+    const newWord = input.value.trim().toLowerCase();
+    if (!newWord) return showToast('الرجاء إدخال كلمة');
+    if (badWordsList.includes(newWord)) return showToast('الكلمة موجودة بالفعل');
+    badWordsList.push(newWord);
+    input.value = '';
+    loadBadWordsManager();
+    showToast(`✅ تم إضافة "${newWord}" إلى قائمة الكلمات الممنوعة`);
+}
+
+function removeBadWord(index) {
+    const removed = badWordsList[index];
+    badWordsList.splice(index, 1);
+    loadBadWordsManager();
+    showToast(`❌ تم إزالة "${removed}" من القائمة`);
+}
+
+// ==================== رفع الملفات ====================
+async function uploadToCloudinary(file) {
+    const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', UPLOAD_PRESET);
+    try {
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (data.secure_url) return data.secure_url;
+        throw new Error('Upload failed');
+    } catch (error) {
+        console.error('Cloudinary error:', error);
+        showToast('فشل رفع الملف');
+        return null;
+    }
+}
+
+// ==================== التسجيل الصوتي ====================
+async function startVoiceRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (event) => audioChunks.push(event.data);
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioUrl = await uploadToCloudinary(audioBlob);
+            if (audioUrl && currentChatUser) {
+                const chatId = getChatId(currentUser.uid, currentChatUser.uid);
+                await db.ref(`chats/${chatId}`).push({
+                    senderId: currentUser.uid,
+                    audioUrl: audioUrl,
+                    timestamp: Date.now(),
+                    read: false
+                });
+                showToast('تم إرسال الرسالة الصوتية');
+            }
+            stream.getTracks().forEach(track => track.stop());
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById('recordingIndicator').style.display = 'flex';
+    } catch (error) {
+        console.error('Recording error:', error);
+        showToast('لا يمكن الوصول إلى الميكروفون');
+    }
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        isRecording = false;
+        document.getElementById('recordingIndicator').style.display = 'none';
+    }
+}
+
+function toggleVoiceRecording() {
+    isRecording ? stopVoiceRecording() : startVoiceRecording();
+}
+
+// ==================== المحادثات ====================
+function onTyping() {
+    if (!currentChatUser) return;
+    const chatId = getChatId(currentUser.uid, currentChatUser.uid);
+    db.ref(`typing/${chatId}/${currentUser.uid}`).set(true);
+    if (typingTimeout) clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+        db.ref(`typing/${chatId}/${currentUser.uid}`).remove();
+    }, 1000);
+}
+
+function listenForTyping(chatId) {
+    db.ref(`typing/${chatId}`).on('value', (snapshot) => {
+        const typing = snapshot.val();
+        const indicator = document.getElementById('typingIndicator');
+        if (typing && Object.keys(typing).length > 0 && !typing[currentUser.uid]) {
+            indicator.style.display = 'block';
+        } else {
+            indicator.style.display = 'none';
+        }
     });
+}
+
+function getChatId(user1, user2) {
+    return [user1, user2].sort().join('_');
+}
+
+// ==================== التفاعل مع المنشورات ====================
+function addEmojiToPost(emoji) {
+    const textarea = document.getElementById('postText');
+    textarea.value += emoji;
+    textarea.focus();
+}
+
+function openStickerPicker() {
+    const picker = document.getElementById('stickerPicker');
+    picker.style.display = picker.style.display === 'grid' ? 'none' : 'grid';
+}
+
+function addStickerToPost(sticker) {
+    const textarea = document.getElementById('postText');
+    textarea.value += sticker;
+    textarea.focus();
+    document.getElementById('stickerPicker').style.display = 'none';
+}
+
+function addPollToCompose() {
+    const pollBuilder = document.getElementById('pollBuilder');
+    pollBuilder.style.display = pollBuilder.style.display === 'none' ? 'block' : 'none';
+    if (pollBuilder.style.display === 'none') {
+        document.getElementById('pollQuestion').value = '';
+        document.getElementById('pollOption1').value = '';
+        document.getElementById('pollOption2').value = '';
+    }
+}
+
+function addPollOption() {
+    const container = document.getElementById('pollBuilder');
+    const inputCount = container.querySelectorAll('input[type="text"]').length;
+    if (inputCount < 6) {
+        const newInput = document.createElement('input');
+        newInput.type = 'text';
+        newInput.placeholder = `خيار ${inputCount + 1}`;
+        newInput.className = 'chat-input';
+        newInput.style.width = '100%';
+        newInput.style.marginBottom = '4px';
+        container.insertBefore(newInput, container.querySelector('button'));
+    } else {
+        showToast('لا يمكن إضافة أكثر من 6 خيارات');
+    }
+}
+
+function toggleSchedulePicker() {
+    const picker = document.getElementById('schedulePicker');
+    picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+}
+
+async function schedulePost() {
+    const scheduleDate = document.getElementById('scheduleDate').value;
+    if (!scheduleDate) return showToast('الرجاء تحديد تاريخ ووقت');
+    const scheduleTime = new Date(scheduleDate).getTime();
+    if (scheduleTime <= Date.now()) return showToast('الرجاء تحديد وقت مستقبلي');
+    const text = document.getElementById('postText').value;
+    if (!text && !selectedMediaFile) return showToast('الرجاء كتابة نص أو إضافة وسائط');
+    
+    const scheduledPost = {
+        userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.name,
+        userAvatar: currentUser.avatar || "",
+        text: text,
+        mediaUrl: selectedMediaFile ? await uploadToCloudinary(selectedMediaFile) : "",
+        mediaType: selectedMediaFile ? selectedMediaFile.type.split('/')[0] : "",
+        scheduleTime: scheduleTime,
+        timestamp: Date.now()
+    };
+    await db.ref(`scheduledPosts/${currentUser.uid}`).push(scheduledPost);
+    showToast('تم جدولة المنشور');
+    closeCompose();
+    checkScheduledPosts();
+}
+
+async function checkScheduledPosts() {
+    const snapshot = await db.ref(`scheduledPosts/${currentUser.uid}`).once('value');
+    const scheduled = snapshot.val();
+    if (scheduled) {
+        for (const [id, post] of Object.entries(scheduled)) {
+            if (post.scheduleTime <= Date.now()) {
+                const postRef = db.ref('posts').push();
+                await postRef.set({
+                    id: postRef.key, userId: post.userId, userName: post.userName,
+                    userAvatar: post.userAvatar, text: post.text, mediaUrl: post.mediaUrl,
+                    mediaType: post.mediaType, hashtags: extractHashtags(post.text),
+                    likes: {}, views: 0, commentsCount: 0, edited: false, timestamp: Date.now()
+                });
+                await db.ref(`scheduledPosts/${currentUser.uid}/${id}`).remove();
+                showToast('تم نشر المنشور المجدول');
+            }
+        }
+    }
+}
+
+function createHeartAnimation(x, y) {
+    const heart = document.createElement('div');
+    heart.className = 'heart-animation';
+    heart.innerHTML = '❤️';
+    heart.style.left = x + 'px';
+    heart.style.top = y + 'px';
+    document.body.appendChild(heart);
+    setTimeout(() => heart.remove(), 600);
+}
+
+// ==================== الإعدادات ====================
+function toggleReadMode() {
+    readModeActive = !readModeActive;
+    const toggle = document.getElementById('readModeToggle');
+    if (readModeActive) {
+        document.body.classList.add('read-mode');
+        toggle.classList.add('active');
+        localStorage.setItem('readMode', 'true');
+    } else {
+        document.body.classList.remove('read-mode');
+        toggle.classList.remove('active');
+        localStorage.setItem('readMode', 'false');
+    }
+    showToast(readModeActive ? 'تم تفعيل وضع القراءة' : 'تم إلغاء وضع القراءة');
+}
+
+function toggleHideLikes() {
+    hideLikesActive = !hideLikesActive;
+    const toggle = document.getElementById('hideLikesToggle');
+    if (hideLikesActive) {
+        toggle.classList.add('active');
+        localStorage.setItem('hideLikes', 'true');
+    } else {
+        toggle.classList.remove('active');
+        localStorage.setItem('hideLikes', 'false');
+    }
+    showToast(hideLikesActive ? 'تم إخفاء عدد الإعجابات' : 'تم إظهار عدد الإعجابات');
+    loadFeed();
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    const themeIcon = document.getElementById('themeToggle');
+    if (themeIcon) {
+        if (isDark) {
+            themeIcon.classList.remove('fa-moon');
+            themeIcon.classList.add('fa-sun');
+        } else {
+            themeIcon.classList.remove('fa-sun');
+            themeIcon.classList.add('fa-moon');
+        }
+    }
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    showToast(isDark ? 'الوضع الليلي' : 'الوضع النهاري');
+}
+
+async function toggleDoNotDisturb() {
+    const dndToggle = document.getElementById('dndToggle');
+    const isDnd = dndToggle.classList.contains('active');
+    if (isDnd) {
+        dndToggle.classList.remove('active');
+        await db.ref(`users/${currentUser.uid}/dnd`).set(false);
+        showToast('تم تفعيل الإشعارات');
+    } else {
+        dndToggle.classList.add('active');
+        await db.ref(`users/${currentUser.uid}/dnd`).set(true);
+        showToast('تم تفعيل عدم الإزعاج');
+    }
+}
+
+async function loadDndStatus() {
+    const snapshot = await db.ref(`users/${currentUser.uid}/dnd`).once('value');
+    const isDnd = snapshot.val();
+    const dndToggle = document.getElementById('dndToggle');
+    if (isDnd && dndToggle) dndToggle.classList.add('active');
+    else if (dndToggle) dndToggle.classList.remove('active');
+}
+
+// ==================== تثبيت التعليق والاقتباس ====================
+async function pinComment(postId, commentId) {
+    await db.ref(`posts/${postId}/pinnedComment`).set(commentId);
+    showToast('تم تثبيت التعليق');
+    loadComments(postId);
+}
+
+function quotePost(postId, originalText, originalUser) {
+    openCompose();
+    document.getElementById('postText').value = `اقتباس من @${originalUser}: "${originalText.substring(0, 100)}"\n\n`;
+    window.quoteOriginalPostId = postId;
+}
+
+// ==================== مكالمات الفيديو ====================
+async function initAgoraCall() {
+    if (!agoraClient) agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    return agoraClient;
+}
+
+async function startVideoCallWithAgora(channelName, userId) {
+    try {
+        const client = await initAgoraCall();
+        await client.join(AGORA_APP_ID, channelName, null, userId);
+        localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+        localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        await client.publish([localTracks.videoTrack, localTracks.audioTrack]);
+        const localPlayer = document.getElementById('localVideo');
+        if (localPlayer) localTracks.videoTrack.play(localPlayer);
+        client.on("user-published", async (user, mediaType) => {
+            await client.subscribe(user, mediaType);
+            if (mediaType === "video") {
+                const remotePlayer = document.getElementById('remoteVideo');
+                if (remotePlayer) user.videoTrack.play(remotePlayer);
+            }
+            if (mediaType === "audio") user.audioTrack.play();
+        });
+        isCallActive = true;
+        showToast('تم بدء المكالمة');
+    } catch (error) {
+        console.error('Video call error:', error);
+        showToast('فشل بدء المكالمة');
+    }
+}
+
+async function endVideoCall() {
+    if (agoraClient) {
+        if (localTracks.videoTrack) localTracks.videoTrack.close();
+        if (localTracks.audioTrack) localTracks.audioTrack.close();
+        await agoraClient.leave();
+        isCallActive = false;
+        showToast('تم إنهاء المكالمة');
+    }
+    document.getElementById('videoCallModal').classList.remove('open');
+}
+
+async function startVideoCallWithCurrentUser() {
+    if (!currentChatUser) return;
+    const channelName = `call_${getChatId(currentUser.uid, currentChatUser.uid)}`;
+    document.getElementById('videoCallModal').classList.add('open');
+    await startVideoCallWithAgora(channelName, currentUser.uid);
+    await db.ref(`notifications/${currentChatUser.uid}`).push({
+        type: 'call', userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.name,
+        channelName: channelName, timestamp: Date.now(), read: false
+    });
+}
+
+async function startVideoCallWithUser(userId) {
+    const channelName = `call_${getChatId(currentUser.uid, userId)}`;
+    document.getElementById('videoCallModal').classList.add('open');
+    await startVideoCallWithAgora(channelName, currentUser.uid);
+    await db.ref(`notifications/${userId}`).push({
+        type: 'call', userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.name,
+        channelName: channelName, timestamp: Date.now(), read: false
+    });
+}
+
+// ==================== تسجيل الخروج (معدل - توجيه إلى auth.html) ====================
+async function logout() {
+    try {
+        await auth.signOut();
+        localStorage.removeItem('auth_logged_in');
+        showToast('تم تسجيل الخروج بنجاح');
+        setTimeout(() => {
+            window.location.href = 'auth.html';
+        }, 1000);
+    } catch (error) {
+        console.error('Logout error:', error);
+        showToast('حدث خطأ أثناء تسجيل الخروج');
+    }
+}
+
+// ==================== مشاهدات الملف الشخصي ====================
+async function recordProfileView(viewedUserId) {
+    if (viewedUserId === currentUser.uid) return;
+    await db.ref(`profileViews/${viewedUserId}/${currentUser.uid}`).set({
+        viewerId: currentUser.uid, viewerName: currentUser.displayName || currentUser.name,
+        viewerAvatar: currentUser.avatar || '', timestamp: Date.now()
+    });
+}
+
+async function openProfileViews() {
+    const snapshot = await db.ref(`profileViews/${currentProfileUser || currentUser.uid}`).once('value');
+    const views = snapshot.val();
+    const container = document.getElementById('profileViewsList');
+    if (!views) {
+        container.innerHTML = '<div class="text-center p-4 text-gray-500">لا توجد مشاهدات بعد</div>';
+    } else {
+        let html = '';
+        const viewsArray = Object.values(views).sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+        for (const view of viewsArray) {
+            html += `<div class="follower-item" onclick="closeProfileViews(); openProfile('${view.viewerId}')">
+                <div class="post-avatar" style="width: 44px; height: 44px;">${view.viewerAvatar ? `<img src="${view.viewerAvatar}">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>'}</div>
+                <div><div style="font-weight: 600;">${escapeHtml(view.viewerName)}</div><div style="font-size: 11px; color: #8e8e8e;">${formatTime(view.timestamp)}</div></div>
+            </div>`;
+        }
+        container.innerHTML = html;
+    }
+    document.getElementById('profileViewsPanel').classList.add('open');
+}
+
+function closeProfileViews() {
+    document.getElementById('profileViewsPanel').classList.remove('open');
+}
+
+// ==================== حفظ المنشورات ====================
+async function savePost(postId) {
+    const saveRef = db.ref(`savedPosts/${currentUser.uid}/${postId}`);
+    const snapshot = await saveRef.once('value');
+    if (snapshot.exists()) {
+        await saveRef.remove();
+        showToast('تم إزالة من القائمة المحفوظة');
+    } else {
+        await saveRef.set(true);
+        showToast('تم حفظ المنشور');
+    }
+    loadFeed();
+}
+
+async function openSavedPosts() {
+    const snapshot = await db.ref(`savedPosts/${currentUser.uid}`).once('value');
+    const savedPosts = snapshot.val();
+    const container = document.getElementById('savedPostsGrid');
+    if (!savedPosts) {
+        container.innerHTML = '<div class="text-center p-8 text-gray-500" style="grid-column: span 3;">لا توجد منشورات محفوظة</div>';
+    } else {
+        let html = '';
+        for (const postId of Object.keys(savedPosts)) {
+            const postSnapshot = await db.ref(`posts/${postId}`).once('value');
+            const post = postSnapshot.val();
+            if (post) {
+                html += `<div class="grid-item" onclick="openComments('${postId}')">
+                    ${post.mediaUrl ? (post.mediaType === 'image' ? `<img src="${post.mediaUrl}">` : `<video src="${post.mediaUrl}"></video>`) : '<div class="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800"><i class="fas fa-file-alt text-2xl text-gray-500"></i></div>'}
+                </div>`;
+            }
+        }
+        container.innerHTML = html || '<div class="text-center p-8 text-gray-500" style="grid-column: span 3;">لا توجد منشورات محفوظة</div>';
+    }
+    document.getElementById('savedPostsPanel').classList.add('open');
+}
+
+function closeSavedPosts() {
+    document.getElementById('savedPostsPanel').classList.remove('open');
+}
+
+// ==================== تثبيت المنشور ====================
+async function pinPost(postId) {
+    const currentPinned = await db.ref(`users/${currentUser.uid}/pinnedPost`).once('value');
+    if (currentPinned.val() === postId) {
+        await db.ref(`users/${currentUser.uid}/pinnedPost`).remove();
+        showToast('تم إلغاء تثبيت المنشور');
+    } else {
+        await db.ref(`users/${currentUser.uid}/pinnedPost`).set(postId);
+        showToast('تم تثبيت المنشور في ملفك الشخصي');
+    }
+    loadFeed();
+    if (currentProfileUser) loadProfilePosts(currentProfileUser);
+}
+
+// ==================== الإبلاغ ====================
+function openReportModal(postId) {
+    currentReportPostId = postId;
+    selectedReportReason = null;
+    document.querySelectorAll('.report-reason').forEach(el => el.classList.remove('selected'));
+    document.getElementById('reportModal').classList.add('open');
+}
+
+function selectReportReason(element, reason) {
+    document.querySelectorAll('.report-reason').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
+    selectedReportReason = reason;
+}
+
+function closeReportModal() {
+    document.getElementById('reportModal').classList.remove('open');
+    currentReportPostId = null;
+    selectedReportReason = null;
+}
+
+async function submitReport() {
+    if (!selectedReportReason || !currentReportPostId) return showToast('الرجاء اختيار سبب الإبلاغ');
+    await db.ref(`reports/${currentReportPostId}`).push({
+        reporterId: currentUser.uid, reporterName: currentUser.displayName || currentUser.name,
+        reason: selectedReportReason, timestamp: Date.now()
+    });
+    showToast('تم إرسال البلاغ، شكراً لك');
+    closeReportModal();
+}
+
+// ==================== حظر وتقييد ====================
+async function muteUser(userId, minutes = 60) {
+    const muteUntil = Date.now() + (minutes * 60 * 1000);
+    await db.ref(`users/${userId}/mutedUntil`).set(muteUntil);
+    showToast(`تم تقييد المستخدم لمدة ${minutes} دقيقة`);
+    openAdminPanel();
+}
+
+async function isUserMuted(userId) {
+    const snapshot = await db.ref(`users/${userId}/mutedUntil`).once('value');
+    const muteUntil = snapshot.val();
+    return muteUntil && muteUntil > Date.now();
+}
+
+async function changeAvatar() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const url = await uploadToCloudinary(file);
+            if (url) {
+                await db.ref(`users/${currentUser.uid}`).update({ avatar: url });
+                currentUser.avatar = url;
+                if (currentProfileUser) openProfile(currentProfileUser);
+                else openProfile(currentUser.uid);
+                showToast('تم تغيير الصورة الشخصية بنجاح');
+            }
+        }
+    };
+    input.click();
+}
+
+async function changeCover() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const url = await uploadToCloudinary(file);
+            if (url) {
+                await db.ref(`users/${currentUser.uid}`).update({ cover: url });
+                currentUser.cover = url;
+                if (currentProfileUser) openProfile(currentProfileUser);
+                else openProfile(currentUser.uid);
+                showToast('تم تغيير صورة الغلاف بنجاح');
+            }
+        }
+    };
+    input.click();
+}
+
+async function blockUser(userId) {
+    await db.ref(`users/${currentUser.uid}/blockedUsers/${userId}`).set(true);
+    showToast('تم حظر المستخدم');
+    loadFeed();
+}
+
+async function unblockUser(userId) {
+    await db.ref(`users/${currentUser.uid}/blockedUsers/${userId}`).remove();
+    showToast('تم إلغاء حظر المستخدم');
+    loadFeed();
+}
+
+async function isBlocked(userId) {
+    const snapshot = await db.ref(`users/${currentUser.uid}/blockedUsers/${userId}`).once('value');
+    return snapshot.exists();
+}
+
+// ==================== إنشاء منشور ====================
+async function createPost() {
+    const publishBtn = document.getElementById('publishPostBtn');
+    if (publishBtn) {
+        publishBtn.style.transform = 'scale(0.95)';
+        setTimeout(() => { if(publishBtn) publishBtn.style.transform = 'scale(1)'; }, 150);
+    }
+    
+    let text = document.getElementById('postText')?.value;
+    if (containsBadWords(text)) return showToast('⚠️ المنشور يحتوي على كلمات ممنوعة');
+    if (!text && !selectedMediaFile) return showToast('الرجاء كتابة نص أو إضافة وسائط');
+    text = filterBadWords(text);
+    if (await isUserMuted(currentUser.uid)) return showToast('⚠️ أنت مقيد مؤقتاً ولا يمكنك النشر');
+
+    let mediaUrl = "", mediaType = "";
+    if (selectedMediaFile) {
+        mediaType = selectedMediaFile.type.split('/')[0];
+        mediaUrl = await uploadToCloudinary(selectedMediaFile);
+        if (!mediaUrl) return;
+    }
+
+    const hashtags = extractHashtags(text);
+    const postRef = db.ref('posts').push();
+    
+    let quoteData = null;
+    if (window.quoteOriginalPostId) {
+        const originalPostSnapshot = await db.ref(`posts/${window.quoteOriginalPostId}`).once('value');
+        const originalPost = originalPostSnapshot.val();
+        if (originalPost) {
+            quoteData = { originalPostId: window.quoteOriginalPostId, originalText: originalPost.text, originalUser: originalPost.userName };
+        }
+        delete window.quoteOriginalPostId;
+    }
+    
+    let pollData = null;
+    const pollQuestion = document.getElementById('pollQuestion')?.value;
+    if (pollQuestion) {
+        const options = [];
+        const optionInputs = document.querySelectorAll('#pollBuilder input[type="text"]');
+        for (let i = 0; i < optionInputs.length; i++) {
+            if (optionInputs[i].value) options.push(optionInputs[i].value);
+        }
+        if (options.length >= 2) {
+            pollData = { question: pollQuestion, options: options, votes: {}, totalVotes: 0 };
+        }
+    }
+    
+    await postRef.set({
+        id: postRef.key, userId: currentUser.uid, userName: currentUser.displayName || currentUser.name,
+        userAvatar: currentUser.avatar || "", text: text, mediaUrl: mediaUrl, mediaType: mediaType,
+        hashtags: hashtags, likes: {}, views: 0, commentsCount: 0, edited: false,
+        quote: quoteData, poll: pollData, timestamp: Date.now()
+    });
+    
+    for (const tag of hashtags) {
+        await db.ref(`hashtags/${tag.toLowerCase()}/${postRef.key}`).set(true);
+    }
+
+    document.getElementById('postText').value = "";
+    document.getElementById('mediaPreview').innerHTML = "";
+    document.getElementById('mediaPreview').style.display = "none";
+    document.getElementById('pollBuilder').style.display = "none";
+    document.getElementById('pollQuestion').value = "";
+    document.getElementById('pollOption1').value = "";
+    document.getElementById('pollOption2').value = "";
+    selectedMediaFile = null;
+    editingPostId = null;
+    closeCompose();
+    lastPostTimestamp = null;
+    hasMorePosts = true;
+    isLoadingMore = false;
+    loadFeed();
+    loadTrendingHashtags();
+    showToast('تم نشر المنشور بنجاح!');
+}
+
+// ==================== حذف منشور ====================
+async function deletePost(postId) {
+    if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+    const postSnapshot = await db.ref(`posts/${postId}`).once('value');
+    const post = postSnapshot.val();
+    if (post.userId !== currentUser.uid && !currentUser.isAdmin) return showToast('لا يمكنك حذف منشور ليس لك');
+    if (post.hashtags) {
+        for (const tag of post.hashtags) {
+            await db.ref(`hashtags/${tag.toLowerCase()}/${postId}`).remove();
+        }
+    }
+    await db.ref(`posts/${postId}`).remove();
+    lastPostTimestamp = null;
+    hasMorePosts = true;
+    isLoadingMore = false;
+    loadFeed();
+    loadTrendingHashtags();
+    showToast('تم حذف المنشور');
+}
+
+// ==================== إعجاب فوري ====================
+async function likePost(postId) {
+    const likeRef = db.ref(`posts/${postId}/likes/${currentUser.uid}`);
+    const snapshot = await likeRef.once('value');
+    const wasLiked = snapshot.exists();
+    
+    const postCard = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (postCard) {
+        const likeButton = postCard.querySelector('.post-action:first-child');
+        const likesSpan = postCard.querySelector('.post-likes');
+        if (likeButton) {
+            if (wasLiked) likeButton.classList.remove('active');
+            else likeButton.classList.add('active');
+        }
+        if (likesSpan && !hideLikesActive) {
+            let currentCount = parseInt(likesSpan.textContent) || 0;
+            currentCount = wasLiked ? currentCount - 1 : currentCount + 1;
+            likesSpan.textContent = `${currentCount} إعجاب`;
+            likesSpan.style.display = currentCount === 0 ? 'none' : 'block';
+        }
+    }
+    
+    if (wasLiked) {
+        await likeRef.remove();
+    } else {
+        await likeRef.set(true);
+        const postSnapshot = await db.ref(`posts/${postId}`).once('value');
+        const post = postSnapshot.val();
+        if (post && post.userId !== currentUser.uid) {
+            const dndSnapshot = await db.ref(`users/${post.userId}/dnd`).once('value');
+            if (!dndSnapshot.val()) {
+                await db.ref(`notifications/${post.userId}`).push({
+                    type: 'like', userId: currentUser.uid,
+                    userName: currentUser.displayName || currentUser.name,
+                    postId: postId, timestamp: Date.now(), read: false
+                });
+            }
+        }
+    }
+}
+
+// ==================== مشاركة ====================
+async function sharePost(postId) {
+    const postSnapshot = await db.ref(`posts/${postId}`).once('value');
+    const post = postSnapshot.val();
+    const shareRef = db.ref('posts').push();
+    await shareRef.set({
+        id: shareRef.key, userId: currentUser.uid, userName: currentUser.displayName || currentUser.name,
+        userAvatar: currentUser.avatar || "", text: `شارك منشور: ${post.text.substring(0, 100)}`,
+        originalPostId: postId, originalUser: post.userName, timestamp: Date.now()
+    });
+    showToast('تمت المشاركة!');
+}
+
+// ==================== تصويت ====================
+async function votePoll(postId, optionIndex) {
+    const postRef = db.ref(`posts/${postId}/poll`);
+    const snapshot = await postRef.once('value');
+    const poll = snapshot.val();
+    if (poll && poll.votes && poll.votes[currentUser.uid]) return showToast('لقد صوت مسبقاً');
+    await db.ref(`posts/${postId}/poll/votes/${currentUser.uid}`).set(optionIndex);
+    await db.ref(`posts/${postId}/poll/totalVotes`).transaction(current => (current || 0) + 1);
+    loadFeed();
+}
+
+// ==================== زيادة المشاهدات ====================
+async function incrementPostViews(postId) {
+    await db.ref(`posts/${postId}/views`).transaction(current => (current || 0) + 1);
+}
+
+// ==================== الترند ====================
+async function loadTrendingHashtags() {
+    const hashtagSnapshot = await db.ref('hashtags').once('value');
+    const hashtags = hashtagSnapshot.val();
+    if (!hashtags) return;
+    const trending = [];
+    for (const [tag, posts] of Object.entries(hashtags)) {
+        trending.push({ tag, count: Object.keys(posts).length });
+    }
+    trending.sort((a, b) => b.count - a.count);
+    const top5 = trending.slice(0, 5);
+    const container = document.getElementById('trendingList');
+    if (container) {
+        container.innerHTML = top5.map((item, index) => `
+            <div class="trending-item" onclick="searchHashtag('${item.tag}')">
+                <div class="trending-rank">#${index + 1}</div>
+                <div class="trending-hashtag">#${escapeHtml(item.tag)}</div>
+                <div class="trending-count">${item.count} منشور</div>
+            </div>
+        `).join('');
+    }
+}
+
+// ==================== Infinite Scroll - التحميل التلقائي ====================
+function setupInfiniteScroll() {
+    if (scrollListenerActive) return;
+    scrollListenerActive = true;
+    
+    window.addEventListener('scroll', () => {
+        if (isLoadingMore || !hasMorePosts) return;
+        
+        const scrollPosition = window.scrollY + window.innerHeight;
+        const pageHeight = document.documentElement.scrollHeight;
+        
+        if (scrollPosition >= pageHeight - 300) {
+            loadFeed(false);
+        }
+    });
+}
+
+// ==================== التغذية مع Infinite Scroll ====================
+async function loadFeed(reset = true) {
+    const feedContainer = document.getElementById('feedContainer');
+    if (!feedContainer) return;
+    
+    if (reset) {
+        feedContainer.innerHTML = '<div class="loading"><div class="spinner"></div><span>جاري التحميل...</span></div>';
+        lastPostTimestamp = null;
+        hasMorePosts = true;
+        isLoadingMore = false;
+    }
+    
+    if (isLoadingMore || !hasMorePosts) return;
+    isLoadingMore = true;
+    
+    let postsQuery = db.ref('posts').orderByChild('timestamp').limitToLast(10);
+    if (lastPostTimestamp) {
+        postsQuery = db.ref('posts').orderByChild('timestamp').endAt(lastPostTimestamp - 1).limitToLast(10);
+    }
+    
+    const snapshot = await postsQuery.once('value');
+    const posts = snapshot.val();
+    
+    if (!posts || Object.keys(posts).length === 0) {
+        if (reset) feedContainer.innerHTML = '<div class="text-center p-8 text-gray-500">لا توجد منشورات بعد</div>';
+        hasMorePosts = false;
+        isLoadingMore = false;
+        return;
+    }
+    
+    let postsArray = Object.values(posts).sort((a, b) => b.timestamp - a.timestamp);
+    
+    if (postsArray.length === 0) {
+        hasMorePosts = false;
+        isLoadingMore = false;
+        return;
+    }
+    
+    const newLastTimestamp = Math.min(...postsArray.map(p => p.timestamp));
+    if (lastPostTimestamp === newLastTimestamp) {
+        hasMorePosts = false;
+        isLoadingMore = false;
+        return;
+    }
+    lastPostTimestamp = newLastTimestamp;
+    
+    if (postsArray.length < 10) hasMorePosts = false;
+    
+    const blockedSnapshot = await db.ref(`users/${currentUser?.uid}/blockedUsers`).once('value');
+    const blockedUsers = blockedSnapshot.val() || {};
+    
+    const pinnedPostId = await db.ref(`users/${currentUser?.uid}/pinnedPost`).once('value');
+    const pinnedId = pinnedPostId.val();
+    
+    postsArray = postsArray.filter(post => !blockedUsers[post.userId]);
+    
+    if (reset && pinnedId) {
+        const pinnedIndex = postsArray.findIndex(p => p.id === pinnedId);
+        if (pinnedIndex > -1) {
+            const pinnedPost = postsArray[pinnedIndex];
+            postsArray.splice(pinnedIndex, 1);
+            postsArray.unshift(pinnedPost);
+        }
+    }
+    
+    let html = reset ? '' : feedContainer.innerHTML;
+    if (reset) html = '';
+    
+    for (const post of postsArray) {
+        await incrementPostViews(post.id);
+        
+        const userInfoSnapshot = await db.ref(`users/${post.userId}`).once('value');
+        const userInfo = userInfoSnapshot.val();
+        const isUserVerified = userInfo?.verified || false;
+        const isLiked = post.likes && post.likes[currentUser?.uid];
+        const likesCount = post.likes ? Object.keys(post.likes).length : 0;
+        const isOwner = post.userId === currentUser?.uid;
+        const isPinned = reset && pinnedId === post.id;
+        const savedSnapshot = await db.ref(`savedPosts/${currentUser?.uid}/${post.id}`).once('value');
+        const isSaved = savedSnapshot.exists();
+        
+        let formattedText = escapeHtml(post.text);
+        if (post.hashtags) {
+            post.hashtags.forEach(tag => {
+                const regex = new RegExp(`#${tag}`, 'gi');
+                formattedText = formattedText.replace(regex, `<span class="post-hashtags" onclick="searchHashtag('${tag}')">#${tag}</span>`);
+            });
+        }
+        formattedText = formattedText.replace(/@(\w+)/g, '<span class="post-hashtags" onclick="searchUser(\'$1\')">@$1</span>');
+        
+        let pollHtml = '';
+        if (post.poll && post.poll.question) {
+            pollHtml = '<div class="poll-container">';
+            pollHtml += `<div style="font-weight: 600; margin-bottom: 8px;">📊 ${escapeHtml(post.poll.question)}</div>`;
+            for (let i = 0; i < post.poll.options.length; i++) {
+                const voteCount = post.poll.votes ? Object.values(post.poll.votes).filter(v => v === i).length : 0;
+                const percentage = post.poll.totalVotes > 0 ? (voteCount / post.poll.totalVotes * 100).toFixed(1) : 0;
+                pollHtml += `
+                    <div class="poll-option" onclick="votePoll('${post.id}', ${i})">
+                        <div class="poll-progress" style="width: ${percentage}%;"></div>
+                        <div class="poll-option-text">
+                            <span>${escapeHtml(post.poll.options[i])}</span>
+                            ${!hideLikesActive ? `<span>${percentage}% (${voteCount} صوت)</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            pollHtml += `<div style="font-size: 11px; color: #8e8e8e; margin-top: 8px;">${post.poll.totalVotes || 0} صوت</div>`;
+            pollHtml += '</div>';
+        }
+        
+        let quoteHtml = '';
+        if (post.quote) {
+            quoteHtml = `
+                <div class="quote-post" onclick="openComments('${post.quote.originalPostId}')">
+                    <div style="font-weight: 600;">@${escapeHtml(post.quote.originalUser)}</div>
+                    <div style="font-size: 13px;">${escapeHtml(post.quote.originalText?.substring(0, 100))}</div>
+                </div>
+            `;
+        }
+        
+        let mediaHtml = '';
+        if (post.mediaUrl) {
+            if (post.mediaType === 'image') {
+                mediaHtml = `<img src="${post.mediaUrl}" class="post-image" loading="lazy" onclick="event.stopPropagation(); openImageViewer(['${post.mediaUrl}'], 0)">`;
+            } else if (post.mediaType === 'video') {
+                mediaHtml = `
+                    <div class="video-container" onclick="event.stopPropagation()">
+                        <video src="${post.mediaUrl}" class="post-video" autoplay muted loop playsinline></video>
+                        <div class="video-controls">
+                            <button onclick="this.parentElement.parentElement.querySelector('video').play()"><i class="fas fa-play"></i></button>
+                            <button onclick="this.parentElement.parentElement.querySelector('video').pause()"><i class="fas fa-pause"></i></button>
+                            <button onclick="this.parentElement.parentElement.querySelector('video').muted = !this.parentElement.parentElement.querySelector('video').muted"><i class="fas fa-volume-up"></i></button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        html += `
+            <div class="post-card ${isPinned ? 'pinned' : ''} fade-in" data-post-id="${post.id}" ondblclick="likePost('${post.id}'); createHeartAnimation(event.clientX, event.clientY)">
+                ${isPinned ? '<div class="pinned-badge"><i class="fas fa-thumbtack"></i> مثبت</div>' : ''}
+                <div class="post-header">
+                    <div class="post-user-info" onclick="openProfile('${post.userId}')">
+                        <div class="post-avatar">${post.userAvatar ? `<img src="${post.userAvatar}">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>'}</div>
+                        <div>
+                            <div class="post-username">
+                                ${escapeHtml(post.userName)}
+                                ${isUserVerified ? '<i class="fas fa-check-circle verified-badge" style="color: #0095f6; font-size: 14px;"></i>' : ''}
+                            </div>
+                            <div class="post-time">${formatTime(post.timestamp)} ${post.edited ? '· معدل' : ''}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        ${(isOwner || currentUser?.isAdmin) ? `<button class="post-menu" onclick="event.stopPropagation(); deletePost('${post.id}')"><i class="fas fa-trash-alt"></i></button>` : ''}
+                        ${isOwner ? `<button class="post-menu" onclick="event.stopPropagation(); pinPost('${post.id}')"><i class="fas fa-thumbtack"></i></button>` : ''}
+                        <button class="post-menu" onclick="event.stopPropagation(); savePost('${post.id}')"><i class="fas fa-bookmark" style="${isSaved ? 'color: #f7b733;' : ''}"></i></button>
+                        <button class="post-menu" onclick="event.stopPropagation(); quotePost('${post.id}', '${escapeHtml(post.text)}', '${escapeHtml(post.userName)}')"><i class="fas fa-quote-right"></i></button>
+                        <button class="post-menu" onclick="event.stopPropagation(); openReportModal('${post.id}')"><i class="fas fa-flag"></i></button>
+                    </div>
+                </div>
+                ${mediaHtml}
+                ${pollHtml}
+                ${quoteHtml}
+                <div class="post-actions">
+                    <button class="post-action ${isLiked ? 'active' : ''}" onclick="likePost('${post.id}')"><i class="fas fa-heart"></i></button>
+                    <button class="post-action" onclick="openComments('${post.id}')"><i class="fas fa-comment"></i></button>
+                    <button class="post-action" onclick="sharePost('${post.id}')"><i class="fas fa-paper-plane"></i></button>
+                </div>
+                ${likesCount > 0 && !hideLikesActive ? `<div class="post-likes">${likesCount} إعجاب</div>` : ''}
+                <div class="post-caption"><span onclick="openProfile('${post.userId}')">${escapeHtml(post.userName)}</span> ${formattedText}</div>
+                ${post.commentsCount > 0 ? `<div class="post-comments" onclick="openComments('${post.id}')">عرض جميع التعليقات (${post.commentsCount})</div>` : ''}
+                <div class="post-views"><i class="far fa-eye"></i> ${post.views || 0} مشاهدة</div>
+            </div>
+        `;
+    }
+    
+    if (reset) {
+        feedContainer.innerHTML = html;
+        setupInfiniteScroll();
+    } else {
+        feedContainer.innerHTML = html;
+    }
+    
+    isLoadingMore = false;
+}
+
+// ==================== البحث ====================
+async function searchUser(username) {
+    openSearch();
+    document.getElementById('searchInput').value = username;
+    await searchAll();
+}
+
+async function searchHashtag(tag) {
+    openSearch();
+    document.getElementById('searchInput').value = `#${tag}`;
+    await searchAll();
+}
+
+async function searchAll() {
+    const query = document.getElementById('searchInput')?.value.toLowerCase();
+    if (!query) {
+        document.getElementById('searchResults').innerHTML = '';
+        return;
+    }
+    const usersSnapshot = await db.ref('users').once('value');
+    const users = usersSnapshot.val();
+    const hashtagSnapshot = await db.ref('hashtags').once('value');
+    const hashtags = hashtagSnapshot.val();
+    let results = [];
+    if (users) results.push(...Object.values(users).filter(u => u.name?.toLowerCase().includes(query) || u.email?.toLowerCase().includes(query)).map(u => ({ type: 'user', data: u })));
+    if (hashtags && query.startsWith('#')) {
+        const tag = query.substring(1);
+        if (hashtags[tag]) results.push({ type: 'hashtag', data: { tag: tag, count: Object.keys(hashtags[tag]).length } });
+    } else if (hashtags) {
+        for (const [tag, posts] of Object.entries(hashtags)) {
+            if (tag.toLowerCase().includes(query)) results.push({ type: 'hashtag', data: { tag: tag, count: Object.keys(posts).length } });
+        }
+    }
+    let html = '';
+    for (const result of results) {
+        if (result.type === 'user') html += `<div class="follower-item" onclick="closeSearch(); openProfile('${result.data.uid}')"><div class="post-avatar" style="width: 44px; height: 44px;">${result.data.avatar ? `<img src="${result.data.avatar}">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>'}</div><div><div style="font-weight: 600;">${escapeHtml(result.data.name)}</div><div style="font-size: 12px; color: #8e8e8e;">${escapeHtml(result.data.email)}</div></div></div>`;
+        else if (result.type === 'hashtag') html += `<div class="follower-item" onclick="closeSearch(); searchHashtag('${result.data.tag}')"><div class="post-avatar" style="width: 44px; height: 44px; background: linear-gradient(135deg, #ff6b35, #f7b733); display: flex; align-items: center; justify-content: center;"><i class="fas fa-hashtag text-white text-xl"></i></div><div><div style="font-weight: 600; color: #ff6b35;">#${escapeHtml(result.data.tag)}</div><div style="font-size: 12px; color: #8e8e8e;">${result.data.count} منشور</div></div></div>`;
+    }
+    document.getElementById('searchResults').innerHTML = html || '<div class="text-center p-4 text-gray-500">لا توجد نتائج</div>';
+}
+
+// ==================== التعليقات ====================
+async function openComments(postId) {
+    currentPostId = postId;
+    document.getElementById('commentsPanel').classList.add('open');
+    await loadComments(postId);
+}
+
+async function loadComments(postId) {
+    const snapshot = await db.ref(`comments/${postId}`).once('value');
+    const comments = snapshot.val();
+    const commentsList = document.getElementById('commentsList');
+    if (!commentsList) return;
+    const pinnedCommentId = await db.ref(`posts/${postId}/pinnedComment`).once('value');
+    const pinnedId = pinnedCommentId.val();
+    if (!comments) {
+        commentsList.innerHTML = '<div class="text-center p-4 text-gray-500">لا توجد تعليقات</div>';
+        return;
+    }
+    let commentsArray = Object.entries(comments).map(([id, comment]) => ({ id, ...comment }));
+    if (pinnedId) {
+        const pinnedIndex = commentsArray.findIndex(c => c.id === pinnedId);
+        if (pinnedIndex > -1) {
+            const pinnedComment = commentsArray[pinnedIndex];
+            commentsArray.splice(pinnedIndex, 1);
+            commentsArray.unshift(pinnedComment);
+        }
+    }
+    let html = '';
+    for (const comment of commentsArray) {
+        const userSnapshot = await db.ref(`users/${comment.userId}`).once('value');
+        const userData = userSnapshot.val();
+        const isCommentOwner = comment.userId === currentUser?.uid;
+        const isVerified = userData?.verified || false;
+        html += `<div class="chat-message"><div class="message-bubble"><div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;"><span style="font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" onclick="closeComments(); openProfile('${comment.userId}')">${escapeHtml(userData?.name || 'مستخدم')}${isVerified ? '<i class="fas fa-check-circle" style="color: #0095f6; font-size: 12px;"></i>' : ''}</span><span style="font-size: 10px; color: #8e8e8e;">${formatTime(comment.timestamp)}</span>${comment.id === pinnedId ? '<span style="background: #ff6b35; color: white; padding: 2px 6px; border-radius: 12px; font-size: 9px;">📌 مثبت</span>' : ''}${isCommentOwner ? `<button class="post-menu" onclick="pinComment('${postId}', '${comment.id}')" style="margin-right: auto;"><i class="fas fa-thumbtack"></i></button>` : ''}</div><div>${escapeHtml(filterBadWords(comment.text))}</div></div></div>`;
+    }
+    commentsList.innerHTML = html;
+}
+
+async function addComment() {
+    let text = document.getElementById('commentInput')?.value;
+    if (!text || !currentPostId) return;
+    if (containsBadWords(text)) return showToast('⚠️ التعليق يحتوي على كلمات ممنوعة');
+    text = filterBadWords(text);
+    if (await isUserMuted(currentUser.uid)) return showToast('⚠️ أنت مقيد مؤقتاً ولا يمكنك التعليق');
+    const commentRef = db.ref(`comments/${currentPostId}`).push();
+    await commentRef.set({ userId: currentUser.uid, userName: currentUser.displayName || currentUser.name, text: text, timestamp: Date.now() });
+    const postRef = db.ref(`posts/${currentPostId}`);
+    const snapshot = await postRef.once('value');
+    const post = snapshot.val();
+    await postRef.update({ commentsCount: (post.commentsCount || 0) + 1 });
+    if (post.userId !== currentUser.uid) {
+        const dndSnapshot = await db.ref(`users/${post.userId}/dnd`).once('value');
+        if (!dndSnapshot.val()) {
+            await db.ref(`notifications/${post.userId}`).push({
+                type: 'comment', userId: currentUser.uid, userName: currentUser.displayName || currentUser.name,
+                postId: currentPostId, text: text, timestamp: Date.now(), read: false
+            });
+        }
+    }
+    document.getElementById('commentInput').value = '';
+    await loadComments(currentPostId);
+    loadFeed();
+    showToast('تم إضافة التعليق');
+}
+
+// ==================== الملف الشخصي ====================
+async function openMyProfile() {
+    if (currentUser) openProfile(currentUser.uid);
+}
+
+async function openProfile(userId) {
+    currentProfileUser = userId;
+    const snapshot = await db.ref(`users/${userId}`).once('value');
+    const userData = snapshot.val();
+    if (!userData) return;
+    await recordProfileView(userId);
+    const profileCover = document.getElementById('profileCover');
+    if (profileCover) {
+        if (userData.cover) {
+            profileCover.style.backgroundImage = `url(${userData.cover})`;
+            profileCover.style.backgroundSize = 'cover';
+            profileCover.style.backgroundPosition = 'center';
+        } else {
+            profileCover.style.backgroundImage = 'linear-gradient(135deg, #ff6b35, #f7b733)';
+        }
+    }
+    const profileAvatarLarge = document.getElementById('profileAvatarLarge');
+    profileAvatarLarge.innerHTML = userData.avatar ? `<img src="${userData.avatar}" style="width:100%;height:100%;object-fit:cover">` : '<i class="fas fa-user text-5xl text-white flex items-center justify-center h-full"></i>';
+    document.getElementById('profileName').innerHTML = `${escapeHtml(userData.name)} ${userData.verified ? '<i class="fas fa-check-circle verified-badge" style="color: #0095f6; font-size: 20px;"></i>' : ''}`;
+    document.getElementById('profileBio').textContent = userData.bio || "مرحباً! أنا في AYONI ✨";
+    const websiteEl = document.getElementById('profileWebsite');
+    if (userData.website) websiteEl.innerHTML = `<a href="${userData.website}" target="_blank" style="color: #ff6b35;">${userData.website}</a>`;
+    else websiteEl.innerHTML = '';
+    const followersSnapshot = await db.ref(`followers/${userId}`).once('value');
+    const followingSnapshot = await db.ref(`following/${userId}`).once('value');
+    const viewsSnapshot = await db.ref(`profileViews/${userId}`).once('value');
+    document.getElementById('profileFollowersCount').textContent = followersSnapshot.exists() ? Object.keys(followersSnapshot.val()).length : 0;
+    document.getElementById('profileFollowingCount').textContent = followingSnapshot.exists() ? Object.keys(followingSnapshot.val()).length : 0;
+    document.getElementById('profileViewsCount').textContent = viewsSnapshot.exists() ? Object.keys(viewsSnapshot.val()).length : 0;
+    const postsSnapshot = await db.ref('posts').once('value');
+    const posts = postsSnapshot.val();
+    document.getElementById('profilePostsCount').textContent = posts ? Object.values(posts).filter(p => p.userId === userId).length : 0;
+    const buttonsDiv = document.getElementById('profileButtons');
+    if (userId !== currentUser.uid) {
+        const isFollowing = await checkIfFollowing(userId);
+        const isBlockedUser = await isBlocked(userId);
+        const isMuted = await isUserMuted(userId);
+        buttonsDiv.innerHTML = `<button class="profile-btn ${isFollowing ? '' : 'profile-btn-primary'}" onclick="toggleFollow('${userId}')">${isFollowing ? 'متابَع' : 'متابعة'}</button><button class="profile-btn" onclick="openChat('${userId}')"><i class="fas fa-comment"></i> راسل</button><button class="profile-btn" onclick="startVideoCallWithUser('${userId}')"><i class="fas fa-video"></i></button>${isBlockedUser ? `<button class="profile-btn" onclick="unblockUser('${userId}')">إلغاء الحظر</button>` : `<button class="profile-btn" onclick="blockUser('${userId}')">حظر</button>`}${currentUser.isAdmin ? `<button class="profile-btn" onclick="muteUser('${userId}', 60)">${isMuted ? 'إلغاء التقييد' : 'تقييد'}</button>` : ''}`;
+    } else {
+        let adminButton = '';
+        if (currentUser.isAdmin || currentUser.email === ADMIN_EMAIL) adminButton = `<button class="profile-btn profile-btn-primary" onclick="openAdminPanel()"><i class="fas fa-cog"></i> لوحة التحكم</button>`;
+        buttonsDiv.innerHTML = `<button class="profile-btn" onclick="openEditProfileModal()"><i class="fas fa-edit"></i> تعديل</button><button class="profile-btn" onclick="changeAvatar()"><i class="fas fa-camera"></i> صورة</button><button class="profile-btn" onclick="changeCover()"><i class="fas fa-image"></i> غلاف</button>${adminButton}`;
+    }
+    await loadProfilePosts(userId);
+    document.getElementById('profilePanel').classList.add('open');
+}
+
+async function checkIfFollowing(userId) {
+    const snapshot = await db.ref(`followers/${userId}/${currentUser.uid}`).once('value');
+    return snapshot.exists();
+}
+
+async function toggleFollow(userId) {
+    const isFollowing = await checkIfFollowing(userId);
+    if (isFollowing) {
+        await db.ref(`followers/${userId}/${currentUser.uid}`).remove();
+        await db.ref(`following/${currentUser.uid}/${userId}`).remove();
+        showToast('تم إلغاء المتابعة');
+    } else {
+        await db.ref(`followers/${userId}/${currentUser.uid}`).set({ uid: currentUser.uid, name: currentUser.displayName || currentUser.name, timestamp: Date.now() });
+        await db.ref(`following/${currentUser.uid}/${userId}`).set({ uid: userId, timestamp: Date.now() });
+        showToast('تم المتابعة');
+        const dndSnapshot = await db.ref(`users/${userId}/dnd`).once('value');
+        if (!dndSnapshot.val()) {
+            await db.ref(`notifications/${userId}`).push({ type: 'follow', userId: currentUser.uid, userName: currentUser.displayName || currentUser.name, timestamp: Date.now(), read: false });
+        }
+    }
+    openProfile(userId);
+}
+
+async function loadProfilePosts(userId) {
+    const postsSnapshot = await db.ref('posts').once('value');
+    const posts = postsSnapshot.val();
+    const userPosts = posts ? Object.values(posts).filter(p => p.userId === userId).sort((a, b) => b.timestamp - a.timestamp) : [];
+    const grid = document.getElementById('profilePostsGrid');
+    if (!grid) return;
+    if (userPosts.length === 0) {
+        grid.innerHTML = '<div class="text-center p-8 text-gray-500" style="grid-column: span 3;">لا توجد منشورات</div>';
+        return;
+    }
+    let html = '';
+    for (const post of userPosts) {
+        html += `<div class="grid-item" onclick="openComments('${post.id}')">${post.mediaUrl ? (post.mediaType === 'image' ? `<img src="${post.mediaUrl}">` : `<video src="${post.mediaUrl}"></video>`) : '<div class="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800"><i class="fas fa-file-alt text-2xl text-gray-500"></i></div>'}<div class="grid-item-overlay"><span><i class="fas fa-heart"></i> ${post.likes ? Object.keys(post.likes).length : 0}</span><span><i class="fas fa-comment"></i> ${post.commentsCount || 0}</span></div></div>`;
+    }
     grid.innerHTML = html;
-    document.querySelectorAll('.like-btn').forEach(btn => btn.onclick = () => toggleLike(btn.dataset.id));
-    document.querySelectorAll('.comment-toggle').forEach(btn => btn.onclick = e => { e.stopPropagation(); let box = document.getElementById(`commentBox-${btn.dataset.id}`); box.classList.toggle('hidden'); if (!box.classList.contains('hidden')) loadComments(btn.dataset.id); });
-    document.querySelectorAll('.sendComment').forEach(btn => btn.onclick = () => addComment(btn.dataset.id));
-    document.querySelectorAll('.share-btn').forEach(btn => btn.onclick = () => { if (navigator.share) navigator.share({ title: 'منشور', url: btn.dataset.url }); else navigator.clipboard.writeText(btn.dataset.url).then(() => showToast('تم نسخ الرابط')); });
-}
-async function toggleLike(postId) { let ref = db.ref(`posts/${postId}`); let snap = await ref.once('value'); let p = snap.val(); if (!p) return; let likes = p.likes || {}; if (likes[currentUser.uid]) delete likes[currentUser.uid]; else likes[currentUser.uid] = true; await ref.update({ likes }); }
-async function loadComments(postId) { let cont = document.getElementById(`commentsList-${postId}`); if (!cont) return; cont.innerHTML = 'جاري...'; let snap = await db.ref(`comments/${postId}`).orderByChild('createdAt').once('value'); let cmts = snap.val(); if (!cmts) { cont.innerHTML = '<div class="text-gray-400">لا تعليقات</div>'; return; } let html = ''; Object.values(cmts).forEach(c => { html += `<div><span class="font-bold text-pink-400">${escapeHtml(c.userName)}</span> ${escapeHtml(c.text)}</div>`; }); cont.innerHTML = html; }
-async function addComment(postId) { let input = document.getElementById(`commentInput-${postId}`); let text = input.value.trim(); if (!text || containsBadWords(text)) return showToast(containsBadWords(text) ? 'نص مخالف' : '', true); await db.ref(`comments/${postId}`).push({ userId: currentUser.uid, userName: currentUser.displayName, text, createdAt: Date.now() }); input.value = ''; loadComments(postId); }
-
-// ========== PROFILE & PRESENCE ==========
-function setupPresence() { let statusRef = db.ref(`status/${currentUser.uid}`); db.ref('.info/connected').on('value', snap => { if (snap.val() === true) { statusRef.onDisconnect().set({ state: 'offline', lastSeen: Date.now() }); statusRef.set({ state: 'online', lastSeen: Date.now() }); } }); }
-async function updateProfile(avatar, username, bio) { let up = {}; if (avatar) up.avatar = avatar; if (username) up.username = username; if (bio !== undefined) up.bio = bio; await db.ref(`users/${currentUser.uid}`).update(up); if (username) await currentUser.updateProfile({ displayName: username }); showToast('تم تحديث الملف'); loadProfileData(currentUser.uid); }
-async function uploadProfileImage(file) { let fd = new FormData(); fd.append('file', file); fd.append('upload_preset', UPLOAD_PRESET); let res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body: fd }); let data = await res.json(); updateProfile(data.secure_url, null, null); }
-let currentProfileUserId = null;
-async function loadProfileData(uid) {
-    let userSnap = await db.ref(`users/${uid}`).once('value'); let user = userSnap.val() || {};
-    let postsSnap = await db.ref('posts').orderByChild('userId').equalTo(uid).once('value'); let posts = postsSnap.val() || {};
-    let followers = await db.ref(`userFollowers/${uid}`).once('value'); let following = await db.ref(`userFollowing/${uid}`).once('value');
-    document.getElementById('modalUsername').innerText = user.username || 'unknown';
-    document.getElementById('modalPosts').innerText = Object.keys(posts).length;
-    document.getElementById('modalFollowers').innerText = followers.exists() ? Object.keys(followers.val()).length : 0;
-    document.getElementById('modalFollowing').innerText = following.exists() ? Object.keys(following.val()).length : 0;
-    document.getElementById('editUsername').value = user.username || '';
-    document.getElementById('editBio').value = user.bio || '';
-    if (user.avatar) document.getElementById('profileAvatar').src = user.avatar;
-    let pList = ''; Object.values(posts).forEach(p => { pList += `<div class="bg-white/5 p-2 rounded-lg text-sm">${escapeHtml(p.text || '')}</div>`; });
-    document.getElementById('userPostsList').innerHTML = pList || '<div class="text-gray-500">لا منشورات</div>';
-    document.getElementById('profileModal').style.display = 'flex';
-    currentProfileUserId = uid;
-}
-async function toggleFollow(targetId) { let fRef = db.ref(`userFollowers/${targetId}/${currentUser.uid}`); let folRef = db.ref(`userFollowing/${currentUser.uid}/${targetId}`); let snap = await fRef.once('value'); if (snap.exists()) { await fRef.remove(); await folRef.remove(); } else { await fRef.set(true); await folRef.set(true); } if (currentProfileUserId === targetId) loadProfileData(targetId); }
-
-// ========== ADMIN PANEL ==========
-async function loadAdminPanel() {
-    let usersSnap = await db.ref('users').once('value'); let users = usersSnap.val() || {};
-    let usersHtml = ''; for (let uid in users) { usersHtml += `<div class="flex justify-between bg-white/5 p-2 rounded"><span>${escapeHtml(users[uid].username)} (${users[uid].email})</span><button class="deleteUserBtn text-red-500" data-uid="${uid}"><i class="fas fa-trash"></i> حظر</button></div>`; }
-    document.getElementById('adminUsersList').innerHTML = usersHtml;
-    document.querySelectorAll('.deleteUserBtn').forEach(btn => btn.onclick = async () => { if (confirm('حظر هذا المستخدم؟')) { let uid = btn.dataset.uid; let postsSnap = await db.ref('posts').orderByChild('userId').equalTo(uid).once('value'); let posts = postsSnap.val(); if (posts) for (let pid in posts) await db.ref(`posts/${pid}`).remove(); await db.ref(`users/${uid}`).remove(); await db.ref(`status/${uid}`).remove(); showToast('تم حظر المستخدم'); loadAdminPanel(); } });
-    let postsSnap = await db.ref('posts').once('value'); let posts = postsSnap.val() || {};
-    let postsHtml = ''; for (let pid in posts) { postsHtml += `<div class="flex justify-between bg-white/5 p-2 rounded"><span>${escapeHtml(posts[pid].userName)}: ${escapeHtml(posts[pid].text || '')}</span><button class="deletePostBtn text-red-500" data-pid="${pid}"><i class="fas fa-trash"></i></button></div>`; }
-    document.getElementById('adminPostsList').innerHTML = postsHtml;
-    document.querySelectorAll('.deletePostBtn').forEach(btn => btn.onclick = async () => { if (confirm('حذف المنشور؟')) { await db.ref(`posts/${btn.dataset.pid}`).remove(); showToast('تم الحذف'); loadAdminPanel(); } });
 }
 
-// ========== CHAT + VOICE ==========
-async function uploadAudio(blob) { let fd = new FormData(); fd.append('file', blob, 'recording.webm'); fd.append('upload_preset', UPLOAD_PRESET); let res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`, { method: 'POST', body: fd }); let data = await res.json(); return data.secure_url; }
-function startRecording() { navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => { mediaRecorder = new MediaRecorder(stream); audioChunks = []; mediaRecorder.ondataavailable = e => audioChunks.push(e.data); mediaRecorder.onstop = async () => { let audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); let audioUrl = await uploadAudio(audioBlob); await db.ref('globalChat').push({ userId: currentUser.uid, userName: currentUser.displayName, text: '🎙️ رسالة صوتية', audioUrl, timestamp: Date.now() }); showToast('تم إرسال التسجيل'); stream.getTracks().forEach(t => t.stop()); }; mediaRecorder.start(); isRecording = true; document.getElementById('recordingStatus').classList.remove('hidden'); }).catch(() => showToast('لا يمكن الوصول للميكروفون', true)); }
-function stopRecording() { if (mediaRecorder && isRecording) { mediaRecorder.stop(); isRecording = false; document.getElementById('recordingStatus').classList.add('hidden'); } }
-function listenGlobalChat() { db.ref('globalChat').orderByChild('timestamp').limitToLast(50).on('child_added', snap => { let msg = snap.val(); let div = document.getElementById('chatMessages'); let audioHtml = msg.audioUrl ? `<audio controls src="${msg.audioUrl}" class="h-8"></audio>` : escapeHtml(msg.text); div.innerHTML += `<div><span class="text-pink-400 font-bold">${escapeHtml(msg.userName)}</span> ${audioHtml}</div>`; div.scrollTop = div.scrollHeight; }); }
-document.getElementById('sendChat').onclick = async () => { let txt = document.getElementById('chatInput').value.trim(); if (!txt || containsBadWords(txt)) return showToast('نص مخالف', true); await db.ref('globalChat').push({ userId: currentUser.uid, userName: currentUser.displayName, text: txt, timestamp: Date.now() }); document.getElementById('chatInput').value = ''; };
-let recordBtn = document.getElementById('recordAudio'); recordBtn.onmousedown = startRecording; recordBtn.onmouseup = stopRecording; recordBtn.ontouchend = stopRecording;
+async function loadProfileMedia(userId) {
+    const postsSnapshot = await db.ref('posts').once('value');
+    const posts = postsSnapshot.val();
+    const userPosts = posts ? Object.values(posts).filter(p => p.userId === userId && p.mediaUrl).sort((a, b) => b.timestamp - a.timestamp) : [];
+    const grid = document.getElementById('profilePostsGrid');
+    if (!grid) return;
+    if (userPosts.length === 0) {
+        grid.innerHTML = '<div class="text-center p-8 text-gray-500" style="grid-column: span 3;">لا توجد وسائط</div>';
+        return;
+    }
+    let html = '';
+    for (const post of userPosts) {
+        html += `<div class="grid-item" onclick="openComments('${post.id}')">${post.mediaType === 'image' ? `<img src="${post.mediaUrl}">` : `<video src="${post.mediaUrl}"></video>`}</div>`;
+    }
+    grid.innerHTML = html;
+}
 
-// ========== UI EVENTS ==========
-document.getElementById('chatToggle').onclick = () => document.getElementById('chatWindow').style.display = 'flex';
-document.getElementById('closeChat').onclick = () => document.getElementById('chatWindow').style.display = 'none';
-document.getElementById('closeProfile').onclick = () => document.getElementById('profileModal').style.display = 'none';
-document.getElementById('closeAdmin').onclick = () => document.getElementById('adminModal').style.display = 'none';
-document.getElementById('profileBtn')?.addEventListener('click', () => loadProfileData(currentUser.uid));
-document.getElementById('changeAvatar').onclick = () => { let inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = e => uploadProfileImage(e.target.files[0]); inp.click(); };
-document.getElementById('saveProfile').onclick = async () => { let uname = document.getElementById('editUsername').value.trim(); let bio = document.getElementById('editBio').value.trim(); await updateProfile(null, uname, bio); };
-function listenPosts() { db.ref('posts').orderByChild('createdAt').on('value', snap => { let obj = snap.val() || {}; let arr = Object.entries(obj).map(([id, data]) => ({ id, ...data })).reverse(); allPosts = arr; renderPosts(arr); }); }
+function openEditProfileModal() {
+    document.getElementById('editName').value = currentUser.displayName || currentUser.name || '';
+    document.getElementById('editBio').value = currentUser.bio || '';
+    document.getElementById('editWebsite').value = currentUser.website || '';
+    document.getElementById('editProfileModal').classList.add('open');
+}
 
-// ========== AUTH ==========
-auth.onAuthStateChanged(async user => {
-    if (!user) { location.href = 'auth.html'; return; }
-    if (!user.emailVerified) { await auth.signOut(); alert('❌ يرجى تأكيد بريدك الإلكتروني أولاً. تحقق من صندوق الوارد (بما في ذلك spam).'); location.href = 'auth.html'; return; }
-    currentUser = user;
-    document.getElementById('profileName').innerText = user.displayName || user.email.split('@')[0];
-    let userRef = db.ref(`users/${user.uid}`);
-    let snap = await userRef.once('value');
-    if (!snap.exists()) await userRef.set({ username: user.displayName, email: user.email, avatar: user.photoURL || null, bio: '', createdAt: Date.now() });
-    setupPresence();
-    if (user.email === ADMIN_EMAIL) { document.getElementById('adminBtnContainer').classList.remove('hidden'); document.getElementById('openAdminPanel').onclick = () => { loadAdminPanel(); document.getElementById('adminModal').style.display = 'flex'; }; }
-    listenPosts();
-    listenGlobalChat();
+function closeEditProfileModal() {
+    document.getElementById('editProfileModal').classList.remove('open');
+}
+
+async function saveProfileEdit() {
+    const newName = document.getElementById('editName')?.value;
+    const newBio = document.getElementById('editBio')?.value;
+    const newWebsite = document.getElementById('editWebsite')?.value;
+    if (newName && newName.trim()) await currentUser.updateProfile({ displayName: newName.trim() });
+    await db.ref(`users/${currentUser.uid}`).update({ name: newName || currentUser.name, bio: newBio || "", website: newWebsite || "" });
+    currentUser.name = newName || currentUser.name;
+    currentUser.bio = newBio || "";
+    currentUser.website = newWebsite || "";
+    currentUser.displayName = newName || currentUser.displayName;
+    closeEditProfileModal();
+    openProfile(currentUser.uid);
+    showToast('تم حفظ التغييرات');
+}
+
+// ==================== المحادثات ====================
+async function openChat(userId) {
+    const snapshot = await db.ref(`users/${userId}`).once('value');
+    currentChatUser = snapshot.val();
+    document.getElementById('chatUserName').textContent = currentChatUser.name;
+    const chatAvatar = document.getElementById('chatAvatar');
+    chatAvatar.innerHTML = currentChatUser.avatar ? `<img src="${currentChatUser.avatar}" style="width:100%;height:100%;object-fit:cover">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>';
+    const lastSeenSnapshot = await db.ref(`users/${userId}/lastSeen`).once('value');
+    const lastSeen = lastSeenSnapshot.val();
+    const lastSeenEl = document.getElementById('chatLastSeen');
+    if (lastSeen) lastSeenEl.textContent = `آخر ظهور ${formatTime(lastSeen)}`;
+    else lastSeenEl.textContent = '';
+    const chatId = getChatId(currentUser.uid, userId);
+    listenForTyping(chatId);
+    await loadChatMessages(userId);
+    document.getElementById('chatPanel').classList.add('open');
+}
+
+async function loadChatMessages(userId) {
+    const chatId = getChatId(currentUser.uid, userId);
+    db.ref(`chats/${chatId}`).off();
+    db.ref(`chats/${chatId}`).on('value', (snapshot) => {
+        const messages = snapshot.val();
+        const container = document.getElementById('chatMessages');
+        if (!container) return;
+        if (!messages) {
+            container.innerHTML = '<div class="text-center p-4 text-gray-500">لا توجد رسائل بعد</div>';
+            return;
+        }
+        let html = '';
+        const messagesArray = Object.values(messages).sort((a, b) => a.timestamp - b.timestamp);
+        for (const msg of messagesArray) {
+            const isSent = msg.senderId === currentUser.uid;
+            const isRead = msg.read;
+            html += `<div class="chat-message ${isSent ? 'sent' : ''}"><div class="message-bubble ${isSent ? 'sent' : ''}">${msg.text ? escapeHtml(msg.text) : ''}${msg.imageUrl ? `<img src="${msg.imageUrl}" class="message-image" onclick="openImageViewer(['${msg.imageUrl}'], 0)">` : ''}${msg.audioUrl ? `<audio controls class="audio-player" src="${msg.audioUrl}"></audio>` : ''}</div>${isSent ? `<div class="message-status"><i class="fas fa-check${isRead ? '-double' : ''}"></i></div>` : ''}</div>`;
+        }
+        container.innerHTML = html;
+        container.scrollTop = container.scrollHeight;
+        for (const [msgId, msg] of Object.entries(messages)) {
+            if (!msg.read && msg.senderId !== currentUser.uid) {
+                db.ref(`chats/${chatId}/${msgId}/read`).set(true);
+            }
+        }
+    });
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chatMessageInput');
+    let text = input?.value;
+    if (!text || !currentChatUser) return;
+    if (containsBadWords(text)) return showToast('⚠️ الرسالة تحتوي على كلمات ممنوعة');
+    text = filterBadWords(text);
+    const chatId = getChatId(currentUser.uid, currentChatUser.uid);
+    await db.ref(`chats/${chatId}`).push({ senderId: currentUser.uid, text: text, timestamp: Date.now(), read: false });
+    input.value = '';
+    db.ref(`typing/${chatId}/${currentUser.uid}`).remove();
+}
+
+async function sendChatImage(input) {
+    const file = input.files[0];
+    if (file && currentChatUser) {
+        const url = await uploadToCloudinary(file);
+        if (url) {
+            const chatId = getChatId(currentUser.uid, currentChatUser.uid);
+            await db.ref(`chats/${chatId}`).push({ senderId: currentUser.uid, imageUrl: url, timestamp: Date.now(), read: false });
+        }
+    }
+    input.value = '';
+}
+
+// ==================== قائمة المحادثات ====================
+async function openConversations() {
+    const conversationsList = document.getElementById('conversationsList');
+    conversationsList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    const snapshot = await db.ref('chats').once('value');
+    const chats = snapshot.val();
+    if (!chats) {
+        conversationsList.innerHTML = '<div class="text-center p-4 text-gray-500">لا توجد محادثات</div>';
+        document.getElementById('conversationsPanel')?.classList.add('open');
+        return;
+    }
+    const conversations = [];
+    for (const [chatId, messages] of Object.entries(chats)) {
+        const [user1, user2] = chatId.split('_');
+        const otherUserId = user1 === currentUser.uid ? user2 : user1;
+        const userSnapshot = await db.ref(`users/${otherUserId}`).once('value');
+        const userData = userSnapshot.val();
+        const messagesArray = Object.values(messages);
+        const lastMessage = messagesArray.sort((a, b) => b.timestamp - a.timestamp)[0];
+        conversations.push({ userId: otherUserId, userData: userData, lastMessage: lastMessage, timestamp: lastMessage.timestamp });
+    }
+    conversations.sort((a, b) => b.timestamp - a.timestamp);
+    let html = '';
+    for (const conv of conversations) {
+        let unreadCount = 0;
+        const messagesSnapshot = await db.ref(`chats/${getChatId(currentUser.uid, conv.userId)}`).once('value');
+        const messages = messagesSnapshot.val();
+        if (messages) unreadCount = Object.values(messages).filter(m => !m.read && m.senderId !== currentUser.uid).length;
+        html += `<div class="follower-item" onclick="closeConversations(); openChat('${conv.userId}')"><div class="post-avatar" style="width: 48px; height: 48px;">${conv.userData?.avatar ? `<img src="${conv.userData.avatar}">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>'}</div><div style="flex: 1;"><div style="font-weight: 600;">${escapeHtml(conv.userData?.name || 'مستخدم')}</div><div style="font-size: 12px; color: #8e8e8e;">${conv.lastMessage.text ? conv.lastMessage.text.substring(0, 30) : (conv.lastMessage.audioUrl ? 'رسالة صوتية' : (conv.lastMessage.imageUrl ? 'صورة' : ''))}</div></div>${unreadCount > 0 ? `<div style="background: #ff6b35; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px;">${unreadCount}</div>` : ''}</div>`;
+    }
+    conversationsList.innerHTML = html;
+    document.getElementById('conversationsPanel')?.classList.add('open');
+}
+
+// ==================== الإشعارات ====================
+async function loadNotifications() {
+    if (!currentUser) return;
+    db.ref(`notifications/${currentUser.uid}`).on('value', (snapshot) => {
+        const notifications = snapshot.val();
+        const notifIcon = document.querySelector('.nav-item:nth-child(4) i');
+        if (!notifIcon) return;
+        const parent = notifIcon.parentElement;
+        const existingBadge = parent.querySelector('.notification-badge');
+        if (notifications) {
+            const unread = Object.values(notifications).filter(n => !n.read).length;
+            if (unread > 0) {
+                if (!existingBadge) parent.innerHTML = '<i class="fas fa-bell"></i><div class="notification-badge">' + unread + '</div>';
+                else existingBadge.textContent = unread;
+            } else if (existingBadge) parent.innerHTML = '<i class="fas fa-bell"></i>';
+        } else if (existingBadge) parent.innerHTML = '<i class="fas fa-bell"></i>';
+    });
+}
+
+async function openNotifications() {
+    const snapshot = await db.ref(`notifications/${currentUser.uid}`).once('value');
+    const notifications = snapshot.val();
+    const container = document.getElementById('notificationsList');
+    if (!notifications) {
+        container.innerHTML = '<div class="text-center p-4 text-gray-500">لا توجد إشعارات</div>';
+        document.getElementById('notificationsPanel')?.classList.add('open');
+        return;
+    }
+    let html = '';
+    const sorted = Object.entries(notifications).sort((a, b) => b[1].timestamp - a[1].timestamp);
+    for (const [id, notif] of sorted) {
+        html += `<div class="follower-item" onclick="markNotificationRead('${id}'); ${notif.type === 'like' ? `openComments('${notif.postId}')` : notif.type === 'comment' ? `openComments('${notif.postId}')` : notif.type === 'call' ? `window.location.reload()` : `openProfile('${notif.userId}')`}"><div class="post-avatar" style="width: 44px; height: 44px;"><i class="fas ${notif.type === 'like' ? 'fa-heart' : notif.type === 'comment' ? 'fa-comment' : notif.type === 'call' ? 'fa-video' : 'fa-user-plus'} text-white text-xl flex items-center justify-center h-full"></i></div><div style="flex: 1;"><div><span style="font-weight: 600;">${escapeHtml(notif.userName)}</span> ${notif.type === 'like' ? 'أعجب بمنشورك' : notif.type === 'comment' ? `علق على منشورك: ${notif.text?.substring(0, 50)}` : notif.type === 'call' ? 'أجرى مكالمة فيديو معك' : 'بدأ بمتابعتك'}</div><div style="font-size: 11px; color: #8e8e8e;">${formatTime(notif.timestamp)}</div></div></div>`;
+    }
+    container.innerHTML = html;
+    document.getElementById('notificationsPanel')?.classList.add('open');
+    const updates = {};
+    for (const id of Object.keys(notifications)) updates[`notifications/${currentUser.uid}/${id}/read`] = true;
+    await db.ref().update(updates);
+    loadNotifications();
+}
+
+async function markNotificationRead(notifId) {
+    await db.ref(`notifications/${currentUser.uid}/${notifId}`).update({ read: true });
+    loadNotifications();
+}
+
+// ==================== لوحة التحكم ====================
+async function openAdminPanel() {
+    if (currentUser.email !== ADMIN_EMAIL && !currentUser.isAdmin) return showToast('🚫 غير مصرح لك بالدخول إلى لوحة التحكم');
+    showToast('🔧 جاري تحميل لوحة التحكم...');
+    
+    loadBadWordsManager();
+    
+    const usersSnapshot = await db.ref('users').once('value');
+    const postsSnapshot = await db.ref('posts').once('value');
+    const commentsSnapshot = await db.ref('comments').once('value');
+    const usersCount = usersSnapshot.exists() ? Object.keys(usersSnapshot.val()).length : 0;
+    const postsCount = postsSnapshot.exists() ? Object.keys(postsSnapshot.val()).length : 0;
+    let commentsCount = 0;
+    if (commentsSnapshot.exists()) for (const pc of Object.values(commentsSnapshot.val())) commentsCount += Object.keys(pc).length;
+    document.getElementById('adminUsersCount').textContent = usersCount;
+    document.getElementById('adminPostsCount').textContent = postsCount;
+    document.getElementById('adminCommentsCount').textContent = commentsCount;
+    
+    let usersHtml = '';
+    if (usersSnapshot.exists()) {
+        for (const [uid, user] of Object.entries(usersSnapshot.val())) {
+            if (uid !== currentUser.uid) {
+                const isMuted = await isUserMuted(uid);
+                usersHtml += `<div class="admin-item"><div><div class="admin-item-name">${escapeHtml(user.name)}</div><div class="admin-item-email">${escapeHtml(user.email)}</div></div><div>${!user.verified ? `<button class="admin-verify-btn" onclick="verifyUser('${uid}')">✅ توثيق</button>` : '<span class="text-green-500">✅ موثق</span>'}<button class="admin-mute-btn" onclick="muteUser('${uid}', 60)">🔇 تقييد</button><button class="admin-delete-btn" onclick="deleteUser('${uid}')">🗑️ حذف</button></div></div>`;
+            }
+        }
+    }
+    document.getElementById('adminUsersList').innerHTML = usersHtml || '<div class="text-center p-4 text-gray-500">لا يوجد مستخدمين</div>';
+    
+    let postsHtml = '';
+    if (postsSnapshot.exists()) {
+        for (const post of Object.values(postsSnapshot.val()).sort((a, b) => b.timestamp - a.timestamp).slice(0, 20)) {
+            postsHtml += `<div class="admin-item"><div><div class="admin-item-name">${escapeHtml(post.userName)}</div><div class="admin-item-email">${escapeHtml(post.text?.substring(0, 50) || '')}</div></div><button class="admin-delete-btn" onclick="deletePost('${post.id}')">🗑️ حذف</button></div>`;
+        }
+    }
+    document.getElementById('adminPostsList').innerHTML = postsHtml || '<div class="text-center p-4 text-gray-500">لا توجد منشورات</div>';
+    document.getElementById('adminPanel').classList.add('open');
+}
+
+async function verifyUser(userId) {
+    await db.ref(`users/${userId}`).update({ verified: true });
+    showToast('✅ تم توثيق المستخدم بنجاح');
+    if (currentUser && currentUser.uid === userId) {
+        currentUser.verified = true;
+        const userSnapshot = await db.ref(`users/${userId}`).once('value');
+        const userData = userSnapshot.val();
+        currentUser = { ...currentUser, ...userData };
+    }
+    openAdminPanel();
+    if (currentProfileUser === userId) openProfile(userId);
+    loadFeed();
+}
+
+async function deleteUser(userId) {
+    if (confirm('⚠️ هل أنت متأكد من حذف هذا المستخدم نهائياً؟')) {
+        await db.ref(`users/${userId}`).remove();
+        showToast('🗑️ تم حذف المستخدم');
+        openAdminPanel();
+        loadFeed();
+    }
+}
+
+function closeAdmin() {
+    document.getElementById('adminPanel').classList.remove('open');
+}
+
+// ==================== قائمة المتابعين ====================
+async function openFollowersList(type) {
+    document.getElementById('followersTitle').textContent = type === 'followers' ? 'المتابعون' : 'المتابَعون';
+    const refPath = type === 'followers' ? `followers/${currentProfileUser}` : `following/${currentProfileUser}`;
+    const snapshot = await db.ref(refPath).once('value');
+    const data = snapshot.val();
+    const container = document.getElementById('followersList');
+    if (!data) {
+        container.innerHTML = '<div class="text-center p-4 text-gray-500">لا يوجد ' + (type === 'followers' ? 'متابعون' : 'متابَعون') + '</div>';
+        document.getElementById('followersPanel')?.classList.add('open');
+        return;
+    }
+    let html = '';
+    for (const [userId] of Object.entries(data)) {
+        const userSnapshot = await db.ref(`users/${userId}`).once('value');
+        const userData = userSnapshot.val();
+        html += `<div class="follower-item" onclick="closeFollowers(); openProfile('${userId}')"><div class="post-avatar" style="width: 48px; height: 48px;">${userData?.avatar ? `<img src="${userData.avatar}">` : '<i class="fas fa-user text-white text-xl flex items-center justify-center h-full"></i>'}</div><div><div style="font-weight: 600;">${escapeHtml(userData?.name || 'مستخدم')}</div><div style="font-size: 12px; color: #8e8e8e;">${escapeHtml(userData?.bio?.substring(0, 50) || '')}</div></div></div>`;
+    }
+    container.innerHTML = html;
+    document.getElementById('followersPanel')?.classList.add('open');
+}
+
+function closeFollowers() {
+    document.getElementById('followersPanel').classList.remove('open');
+}
+
+// ==================== القصص ====================
+async function openStories() {
+    await loadStories();
+    document.getElementById('storiesPanel')?.classList.add('open');
+}
+
+async function loadStories() {
+    const snapshot = await db.ref('stories').once('value');
+    const stories = snapshot.val();
+    const container = document.getElementById('storiesList');
+    container.innerHTML = `<div class="story-card" onclick="addStory()"><div class="add-story-btn"><i class="fas fa-plus"></i></div><div class="story-name">إضافة قصة</div></div>`;
+    if (stories) {
+        for (const [storyId, story] of Object.entries(stories)) {
+            const userSnapshot = await db.ref(`users/${story.userId}`).once('value');
+            const userData = userSnapshot.val();
+            if (Date.now() - story.timestamp < 86400000) {
+                container.innerHTML += `<div class="story-card" onclick="viewStory('${storyId}')"><div class="story-ring"><div class="story-avatar" style="background-image: url('${story.mediaUrl}'); background-size: cover; background-position: center;"></div></div><div class="story-name">${escapeHtml(userData?.name || '')}</div></div>`;
+            }
+        }
+    }
+}
+
+async function addStory() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,video/*';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const url = await uploadToCloudinary(file);
+            if (url) {
+                await db.ref('stories').push({ userId: currentUser.uid, mediaUrl: url, mediaType: file.type.split('/')[0], timestamp: Date.now() });
+                showToast('تم إضافة القصة');
+                await loadStories();
+            }
+        }
+    };
+    input.click();
+}
+
+function viewStory(storyId) {
+    showToast('مشاهدة القصة قريباً...');
+}
+
+function closeStories() {
+    document.getElementById('storiesPanel').classList.remove('open');
+}
+
+// ==================== دوال الإغلاق والواجهات ====================
+function closeCompose() {
+    document.getElementById('composeModal').classList.remove('open');
+    document.getElementById('postText').value = '';
+    document.getElementById('mediaPreview').innerHTML = '';
+    document.getElementById('mediaPreview').style.display = 'none';
+    document.getElementById('pollBuilder').style.display = 'none';
+    document.getElementById('schedulePicker').style.display = 'none';
+    selectedMediaFile = null;
+    editingPostId = null;
+}
+
+function openCompose() {
+    document.getElementById('composeModal').classList.add('open');
+}
+
+function closeComments() {
+    document.getElementById('commentsPanel').classList.remove('open');
+    currentPostId = null;
+}
+
+function closeProfile() {
+    document.getElementById('profilePanel').classList.remove('open');
+}
+
+function closeChat() {
+    document.getElementById('chatPanel').classList.remove('open');
+    if (isRecording) stopVoiceRecording();
+    if (currentChatUser) {
+        const chatId = getChatId(currentUser.uid, currentChatUser.uid);
+        db.ref(`chats/${chatId}`).off();
+        db.ref(`typing/${chatId}`).off();
+    }
+    currentChatUser = null;
+}
+
+function closeConversations() {
+    document.getElementById('conversationsPanel').classList.remove('open');
+}
+
+function closeNotifications() {
+    document.getElementById('notificationsPanel').classList.remove('open');
+}
+
+function closeSearch() {
+    document.getElementById('searchPanel').classList.remove('open');
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchResults').innerHTML = '';
+}
+
+function openSearch() {
+    document.getElementById('searchPanel').classList.add('open');
+}
+
+function goToHome() {
+    switchTab('home');
+}
+
+function switchTab(tab) {
+    if (tab === 'home') {
+        lastPostTimestamp = null;
+        hasMorePosts = true;
+        isLoadingMore = false;
+        loadFeed();
+    }
+}
+
+function previewMedia(input, type) {
+    const file = input.files[0];
+    if (file) {
+        selectedMediaFile = file;
+        const preview = document.getElementById('mediaPreview');
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            if (type === 'image') preview.innerHTML = `<img src="${e.target.result}"><div class="remove-media" onclick="removeSelectedMedia()" style="position: absolute; top: 8px; right: 8px; background: black; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer;"><i class="fas fa-times"></i></div>`;
+            else if (type === 'video') preview.innerHTML = `<video src="${e.target.result}" controls></video><div class="remove-media" onclick="removeSelectedMedia()" style="position: absolute; top: 8px; right: 8px; background: black; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer;"><i class="fas fa-times"></i></div>`;
+            preview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function removeSelectedMedia() {
+    selectedMediaFile = null;
+    document.getElementById('mediaPreview').innerHTML = '';
+    document.getElementById('mediaPreview').style.display = 'none';
+}
+
+// ==================== تحديث آخر ظهور ====================
+setInterval(async () => {
+    if (currentUser) await db.ref(`users/${currentUser.uid}/lastSeen`).set(Date.now());
+}, 60000);
+
+// ==================== مراقبة حالة المصادقة (معدل - توجيه إلى auth.html) ====================
+const initLoader = document.getElementById('initLoader');
+
+auth.onAuthStateChanged(async (user) => {
+    if (initLoader) {
+        setTimeout(() => {
+            initLoader.style.opacity = '0';
+            setTimeout(() => {
+                if (initLoader) initLoader.style.display = 'none';
+            }, 300);
+        }, 500);
+    }
+    
+    if (user) {
+        currentUser = user;
+        const snapshot = await db.ref(`users/${user.uid}`).once('value');
+        if (snapshot.exists()) {
+            currentUser = { ...currentUser, ...snapshot.val() };
+        } else {
+            await db.ref(`users/${user.uid}`).set({
+                uid: user.uid, name: user.displayName || user.email.split('@')[0],
+                email: user.email, bio: "مرحباً! أنا في AYONI ✨", avatar: "", cover: "",
+                website: "", verified: false, isAdmin: user.email === ADMIN_EMAIL,
+                blockedUsers: {}, mutedUntil: 0, createdAt: Date.now()
+            });
+            currentUser.isAdmin = user.email === ADMIN_EMAIL;
+        }
+        document.getElementById('mainApp').style.display = 'block';
+        
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') document.body.classList.add('dark-mode');
+        const savedReadMode = localStorage.getItem('readMode');
+        if (savedReadMode === 'true') {
+            readModeActive = true;
+            document.getElementById('readModeToggle')?.classList.add('active');
+            document.body.classList.add('read-mode');
+        }
+        const savedHideLikes = localStorage.getItem('hideLikes');
+        if (savedHideLikes === 'true') {
+            hideLikesActive = true;
+            document.getElementById('hideLikesToggle')?.classList.add('active');
+        }
+        
+        lastPostTimestamp = null;
+        hasMorePosts = true;
+        isLoadingMore = false;
+        loadFeed();
+        loadNotifications();
+        loadTrendingHashtags();
+        loadDndStatus();
+        checkScheduledPosts();
+        if (currentUser.isAdmin) loadBadWordsManager();
+    } else {
+        window.location.href = 'auth.html';
+    }
 });
