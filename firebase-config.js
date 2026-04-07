@@ -1,15 +1,35 @@
+// ==================== XSphere - Firebase Configuration ====================
 const firebaseConfig = {
-  apiKey: "AIzaSyC8u6Us6ZvnD4pjYxzRmK0UcwOJAvh1ZCU",
-  authDomain: "mnsx-23109.firebaseapp.com",
-  projectId: "mnsx-23109",
-  storageBucket: "mnsx-23109.firebasestorage.app",
-  messagingSenderId: "1035746353339",
-  appId: "1:1035746353339:web:eec9d447b4379dfa1dc99e",
-  measurementId: "G-6GW5W25MPZ"
+    apiKey: "AIzaSyC8u6Us6ZvnD4pjYxzRmK0UcwOJAvh1ZCU",
+    authDomain: "mnsx-23109.firebaseapp.com",
+    databaseURL: "https://mnsx-23109-default-rtdb.firebaseio.com/",
+    projectId: "mnsx-23109",
+    storageBucket: "mnsx-23109.firebasestorage.app",
+    appId: "1:1035746353339:web:eec9d447b4379dfa1dc99e"
 };
 
+// Initialize Firebase
 if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+    firebase.initializeApp(firebaseConfig);
 }
-// إذا أردت الإشعارات الفورية، قم بإضافة Firebase Cloud Messaging
-// لكن سنتركها حالياً لتجنب التعقيد
+
+// Services
+const auth = firebase.auth();
+const db = firebase.database();
+const storage = firebase.storage();
+
+// Cloudinary
+const CLOUD_NAME = 'da457cqma';
+const UPLOAD_PRESET = 'do33_x';
+
+// Agora (جاهز للبث المباشر لاحقاً)
+const AGORA_APP_ID = '929646610d814d529a06c4081c81325f';
+
+// Admin Account
+const ADMIN_EMAIL = 'jasim88v@gmail.com';
+const ADMIN_PASSWORD = 'kk2314kk';
+
+// Site Name
+const SITE_NAME = 'XSphere';
+
+console.log('✅ XSphere - Firebase, Cloudinary & Agora Ready');
