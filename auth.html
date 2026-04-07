@@ -3,67 +3,91 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>ECHO | دخول</title>
+  <title>XSphere | انضم إلى المستقبل</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,500;14..32,700;14..32,800&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: radial-gradient(circle at 20% 30%, #0a0f2a, #03050b);
-      font-family: 'Segoe UI', system-ui;
+      font-family: 'Inter', sans-serif;
+      background: radial-gradient(circle at 20% 30%, #0a0f2a, #010105);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
     }
     .glass-card {
-      background: rgba(20, 30, 55, 0.5);
-      backdrop-filter: blur(16px);
-      border-radius: 48px;
+      background: rgba(15, 25, 45, 0.65);
+      backdrop-filter: blur(20px);
+      border-radius: 56px;
       border: 1px solid rgba(0, 255, 255, 0.3);
+      box-shadow: 0 25px 50px rgba(0,0,0,0.4), 0 0 30px rgba(0,255,255,0.15);
+      transition: 0.3s;
     }
-    .btn-neon { background: linear-gradient(95deg, #00c6ff, #0072ff); }
-    input { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); transition: 0.2s; }
-    input:focus { border-color: #0ff; box-shadow: 0 0 12px #0ff; outline: none; }
+    .glow-input {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.2);
+      transition: 0.2s;
+    }
+    .glow-input:focus {
+      border-color: #0ff;
+      box-shadow: 0 0 20px #0ff;
+      outline: none;
+    }
+    .btn-neon {
+      background: linear-gradient(95deg, #00c6ff, #0072ff);
+      transition: 0.2s;
+      box-shadow: 0 5px 20px rgba(0,114,255,0.4);
+    }
+    .btn-neon:active { transform: scale(0.97); }
+    .floating-animation { animation: float 6s infinite ease-in-out; }
+    @keyframes float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-12px); }
+      100% { transform: translateY(0px); }
+    }
   </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
-  <div class="glass-card w-full max-w-md p-8 text-white">
-    <div class="text-center mb-6">
-      <i class="fas fa-waveform text-5xl text-cyan-400"></i>
-      <h1 class="text-4xl font-bold mt-2">ECHO</h1>
-      <p class="text-gray-300 text-sm">حيث يتردد صدى الإبداع</p>
+<body class="text-white p-5">
+  <div class="glass-card w-full max-w-md p-8 floating-animation">
+    <div class="text-center mb-8">
+      <div class="text-6xl mb-3 drop-shadow-2xl animate-pulse">🌐</div>
+      <h1 class="text-5xl font-extrabold tracking-tighter bg-gradient-to-r from-cyan-300 to-blue-500 bg-clip-text text-transparent">XSphere</h1>
+      <p class="text-gray-300 text-sm mt-2">عالم جديد من التواصل</p>
     </div>
-    <div id="errorMsg" class="bg-red-500/20 border border-red-500 rounded-2xl p-3 text-sm hidden mb-4"></div>
-    <div id="successMsg" class="bg-green-500/20 border border-green-500 rounded-2xl p-3 text-sm hidden mb-4"></div>
+    <div id="errorMsg" class="bg-red-500/20 border border-red-500 rounded-2xl p-3 text-sm hidden mb-5"></div>
+    <div id="successMsg" class="bg-green-500/20 border border-green-500 rounded-2xl p-3 text-sm hidden mb-5"></div>
 
     <div id="loginView">
-      <input type="email" id="loginEmail" placeholder="البريد الإلكتروني" class="w-full rounded-2xl p-3 mb-3">
-      <input type="password" id="loginPassword" placeholder="كلمة المرور" class="w-full rounded-2xl p-3 mb-4">
-      <button id="loginBtn" class="btn-neon w-full py-3 rounded-2xl font-bold">دخول</button>
-      <div class="flex justify-between text-sm mt-3">
-        <span id="showRegister" class="text-cyan-400 cursor-pointer">حساب جديد</span>
-        <span id="resetPwdBtn" class="text-gray-400 cursor-pointer">نسيت كلمة المرور؟</span>
-      </div>
-      <hr class="my-5 border-white/20">
-      <button id="googleLoginBtn" class="w-full bg-white/10 rounded-2xl py-3 flex items-center justify-center gap-2"><i class="fab fa-google"></i> Google</button>
+      <input type="email" id="loginEmail" placeholder="البريد الإلكتروني" class="glow-input w-full rounded-2xl p-4 mb-4 text-white placeholder-gray-400">
+      <input type="password" id="loginPassword" placeholder="كلمة المرور" class="glow-input w-full rounded-2xl p-4 mb-6 text-white placeholder-gray-400">
+      <button id="loginBtn" class="btn-neon w-full py-3 rounded-2xl font-bold text-lg">دخول</button>
+      <div class="text-center mt-4 text-gray-300">حساب جديد؟ <span id="showRegister" class="text-cyan-400 cursor-pointer font-semibold">إنشاء حساب</span></div>
+      <div class="text-center mt-2 text-gray-400 text-sm cursor-pointer hover:text-cyan-300" id="resetPwdBtn">نسيت كلمة المرور؟</div>
+      <hr class="my-6 border-white/20">
+      <button id="googleLoginBtn" class="w-full bg-white/10 hover:bg-white/20 border border-white/30 rounded-2xl py-3 flex items-center justify-center gap-3 backdrop-blur-sm"><i class="fab fa-google"></i> Google</button>
     </div>
 
     <div id="registerView" class="hidden">
-      <input type="email" id="regEmail" placeholder="البريد" class="w-full rounded-2xl p-3 mb-3">
-      <input type="text" id="regUsername" placeholder="اسم المستخدم" class="w-full rounded-2xl p-3 mb-3">
-      <input type="password" id="regPassword" placeholder="كلمة المرور (6+)" class="w-full rounded-2xl p-3 mb-3">
-      <input type="password" id="regConfirm" placeholder="تأكيد" class="w-full rounded-2xl p-3 mb-4">
-      <button id="registerBtn" class="btn-neon w-full py-3 rounded-2xl font-bold">إنشاء حساب</button>
-      <div class="text-center mt-3"><span id="showLogin" class="text-cyan-400 cursor-pointer">لدي حساب</span></div>
+      <input type="email" id="regEmail" placeholder="البريد" class="glow-input w-full rounded-2xl p-4 mb-4">
+      <input type="text" id="regUsername" placeholder="اسم المستخدم" class="glow-input w-full rounded-2xl p-4 mb-4">
+      <input type="password" id="regPassword" placeholder="كلمة المرور (6+)" class="glow-input w-full rounded-2xl p-4 mb-4">
+      <input type="password" id="regConfirm" placeholder="تأكيد" class="glow-input w-full rounded-2xl p-4 mb-6">
+      <button id="registerBtn" class="btn-neon w-full py-3 rounded-2xl font-bold">انطلق</button>
+      <div class="text-center mt-4 text-gray-300">لديك حساب؟ <span id="showLogin" class="text-cyan-400 cursor-pointer font-semibold">تسجيل الدخول</span></div>
     </div>
   </div>
 
   <script src="firebase-config.js"></script>
   <script>
-    const auth = firebase.auth();
     const loginDiv = document.getElementById('loginView'), regDiv = document.getElementById('registerView');
     const errDiv = document.getElementById('errorMsg'), sucDiv = document.getElementById('successMsg');
-    const showErr = (msg) => { errDiv.innerText = msg; errDiv.classList.remove('hidden'); setTimeout(()=>errDiv.classList.add('hidden'), 5000); };
-    const showSuc = (msg) => { sucDiv.innerText = msg; sucDiv.classList.remove('hidden'); setTimeout(()=>sucDiv.classList.add('hidden'), 5000); };
-
+    const showErr = msg => { errDiv.innerText = msg; errDiv.classList.remove('hidden'); setTimeout(()=>errDiv.classList.add('hidden'),5000); };
+    const showSuc = msg => { sucDiv.innerText = msg; sucDiv.classList.remove('hidden'); setTimeout(()=>sucDiv.classList.add('hidden'),5000); };
     document.getElementById('showRegister').onclick = () => { loginDiv.classList.add('hidden'); regDiv.classList.remove('hidden'); };
     document.getElementById('showLogin').onclick = () => { regDiv.classList.add('hidden'); loginDiv.classList.remove('hidden'); };
     document.getElementById('loginBtn').onclick = async () => {
@@ -71,12 +95,8 @@
       const pwd = document.getElementById('loginPassword').value;
       if (!email || !pwd) return showErr('املأ الحقول');
       try {
-        const userCred = await auth.signInWithEmailAndPassword(email, pwd);
-        if (!userCred.user.emailVerified) {
-          await auth.signOut();
-          showErr('يرجى تأكيد بريدك الإلكتروني أولاً. تحقق من صندوق الوارد.');
-          return;
-        }
+        const cred = await auth.signInWithEmailAndPassword(email, pwd);
+        if (!cred.user.emailVerified) { await auth.signOut(); showErr('يرجى تأكيد بريدك أولاً'); return; }
         window.location.href = 'index.html';
       } catch(e) { showErr(e.message); }
     };
@@ -94,27 +114,16 @@
         await cred.user.sendEmailVerification();
         showSuc('تم إرسال رابط التأكيد إلى بريدك. يرجى التحقق ثم تسجيل الدخول.');
         await auth.signOut();
-        setTimeout(() => { window.location.reload(); }, 3000);
+        setTimeout(() => window.location.reload(), 3000);
       } catch(e) { showErr(e.message); }
     };
     document.getElementById('googleLoginBtn').onclick = async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      try {
-        const result = await auth.signInWithPopup(provider);
-        if (result.user.emailVerified === false) {
-          await auth.signOut();
-          showErr('يرجى تأكيد بريد Google الخاص بك أولاً.');
-          return;
-        }
-        window.location.href = 'index.html';
-      } catch(e) { showErr(e.message); }
+      try { await auth.signInWithPopup(provider); window.location.href = 'index.html'; } catch(e) { showErr(e.message); }
     };
     document.getElementById('resetPwdBtn').onclick = async () => {
       const email = prompt('أدخل بريدك الإلكتروني:');
-      if (email) {
-        await auth.sendPasswordResetEmail(email);
-        alert('تم إرسال رابط إعادة التعيين إلى بريدك.');
-      }
+      if (email) { await auth.sendPasswordResetEmail(email); alert('تم إرسال رابط إعادة التعيين'); }
     };
     auth.onAuthStateChanged(user => { if (user && user.emailVerified) window.location.href = 'index.html'; });
   </script>
